@@ -4,6 +4,7 @@ import {
   finishRun,
   getNextPendingTask,
   getProject,
+  getTask,
   incrementTaskRetry,
   logAgentError,
   logAgentStart,
@@ -92,21 +93,11 @@ async function runDeveloperReviewerLoop(
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     console.log(`\n--- Attempt ${attempt}/${MAX_RETRIES} ---`);
 
-    // IMPROVEMENT 3: Reset git state before retry (except first attempt)
-    if (attempt > 1) {
-      console.log('Resetting git state to last commit...');
-      const resetSuccess = resetToLastCommit(project.path);
-      if (resetSuccess) {
-        console.log('Git state reset successfully');
-      } else {
-        console.warn('Failed to reset git state, continuing anyway');
-      }
-    }
-
     // Update task status
     updateTaskStatus(task.id, 'in_progress');
 
-    // IMPROVEMENT 1: Build retry context with error information
+    // Build retry context with error information (for attempts > 1)
+    // NO git reset between attempts - let developer improve on existing work
     const retryContext: RetryContext | undefined = attempt > 1 ? {
       attemptNumber: attempt,
       maxAttempts: MAX_RETRIES,
@@ -199,10 +190,13 @@ async function handleFailedTask(
   project: Project,
   task: Task,
   lastAttempt: AttemptResult
-): Promise<Task | null> {
+): Promise<{ recoveryTaskCreated: boolean; recoveryTaskId?: string }> {
   console.log('\n--- Task Failed: Requesting Planner Recovery ---');
 
-  // IMPROVEMENT 2: Ask planner for a simpler alternative
+  // Reset git state before asking planner for recovery
+  console.log('Resetting git state to last commit...');
+  resetToLastCommit(project.path);
+
   const failedContext: FailedTaskContext = {
     task,
     attempts: MAX_RETRIES,
@@ -218,36 +212,46 @@ async function handleFailedTask(
 
   if (!recoveryResult.success) {
     console.error('Planner recovery failed');
-    return null;
+    return { recoveryTaskCreated: false };
   }
 
   if (recoveryResult.skipTask) {
     console.log(`Planner suggests skipping task: ${recoveryResult.skipReason}`);
     addTaskComment(task.id, `Skipped: ${recoveryResult.skipReason}`);
     updateTaskStatus(task.id, 'failed');
-    return null;
+    return { recoveryTaskCreated: false };
   }
 
   if (!recoveryResult.task) {
     console.error('Planner recovery did not return a valid task');
-    return null;
+    return { recoveryTaskCreated: false };
   }
 
   // Mark original task as failed with comment
-  addTaskComment(task.id, `Failed after ${MAX_RETRIES} attempts. Replaced with simpler task.`);
+  addTaskComment(task.id, `Failed after ${MAX_RETRIES} attempts. Recovery task created.`);
   updateTaskStatus(task.id, 'failed');
 
-  // Create the simpler replacement task
+  // Create the simpler replacement task as PENDING (don't run it in this session)
   const newTask = createTask({
     project_id: project.id,
     title: recoveryResult.task.title,
     description: recoveryResult.task.description,
   });
 
-  console.log(`Created simpler replacement task: ${newTask.title}`);
-  updateRunTask(run.id, newTask.id);
+  console.log(`Created recovery task: ${newTask.title}`);
+  console.log('Recovery task will be executed in the next run (preventing infinite loops)');
 
-  return newTask;
+  return { recoveryTaskCreated: true, recoveryTaskId: newTask.id };
+}
+
+function isRecoveryTask(task: Task): boolean {
+  // Check if this task was created as a recovery for a previously failed task
+  // We can detect this by checking if there's a failed task with a comment mentioning recovery
+  // For simplicity, we'll track this via the task description containing recovery markers
+  // OR we could add a field to the task table - but for now, we'll just limit runs
+
+  // Simple approach: check retry count - if task itself has failed 3 times, don't recover again
+  return task.retry_count >= MAX_RETRIES;
 }
 
 export async function runOrchestrator(projectId: string): Promise<OrchestratorResult> {
@@ -274,7 +278,7 @@ export async function runOrchestrator(projectId: string): Promise<OrchestratorRe
 
   try {
     // Get or create a task
-    let task = await getOrCreateTask(run, project);
+    const task = await getOrCreateTask(run, project);
 
     if (!task) {
       finishRun(run.id, 'completed', 'No tasks to execute');
@@ -290,27 +294,33 @@ export async function runOrchestrator(projectId: string): Promise<OrchestratorRe
     console.log(`\nExecuting task: ${task.title}`);
 
     // Run developer/reviewer loop
-    let loopResult = await runDeveloperReviewerLoop(run, project, task);
+    const loopResult = await runDeveloperReviewerLoop(run, project, task);
 
-    // IMPROVEMENT 2: If task failed, try planner recovery
     if (!loopResult.success) {
-      // Reset git state before recovery attempt
-      resetToLastCommit(project.path);
+      // Task failed after 3 attempts
+      // Only attempt recovery if this isn't already a recovery task
+      const currentTask = getTask(task.id);
 
-      const recoveryTask = await handleFailedTask(run, project, task, loopResult.lastAttempt);
+      if (currentTask && currentTask.retry_count >= MAX_RETRIES) {
+        // This task has been retried 3 times - request planner recovery
+        // but DON'T run the recovery task in this session (prevents infinite loop)
+        const recovery = await handleFailedTask(run, project, task, loopResult.lastAttempt);
 
-      if (recoveryTask) {
-        // Try the simpler task
-        task = recoveryTask;
-        console.log(`\nExecuting recovery task: ${task.title}`);
-        loopResult = await runDeveloperReviewerLoop(run, project, task);
+        if (recovery.recoveryTaskCreated) {
+          finishRun(run.id, 'failed', `Task failed. Recovery task created for next run.`);
+          return {
+            success: false,
+            runId: run.id,
+            taskId: task.id,
+            commitSha: null,
+            summary: `Task failed after ${MAX_RETRIES} attempts. Recovery task queued.`,
+          };
+        }
       }
-    }
 
-    if (!loopResult.success) {
-      // Still failed after recovery attempt
+      // No recovery possible or recovery task wasn't created
       updateTaskStatus(task.id, 'failed');
-      logAgentError(run.id, 'orchestrator', `Task failed after recovery attempt`);
+      logAgentError(run.id, 'orchestrator', `Task failed after ${MAX_RETRIES} attempts`);
       finishRun(run.id, 'failed', `Task failed: ${task.title}`);
 
       return {
@@ -318,7 +328,7 @@ export async function runOrchestrator(projectId: string): Promise<OrchestratorRe
         runId: run.id,
         taskId: task.id,
         commitSha: null,
-        summary: `Task failed after ${MAX_RETRIES} attempts and recovery`,
+        summary: `Task failed after ${MAX_RETRIES} attempts`,
       };
     }
 
