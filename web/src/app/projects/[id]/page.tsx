@@ -327,16 +327,16 @@ function RunsTab({
   };
 
   return (
-    <div className="flex gap-6">
+    <div className="flex flex-col lg:flex-row gap-6">
       {/* Run List */}
-      <div className="w-80 flex-shrink-0">
+      <div className="w-full lg:w-80 flex-shrink-0">
         <h2 className="text-lg font-semibold mb-4">Recent Runs</h2>
         {runs.length === 0 ? (
           <div className="text-muted-foreground text-center py-8">
             No runs yet. Use the CLI to run the orchestrator.
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="flex lg:flex-col gap-2 overflow-x-auto pb-2 lg:pb-0">
             {runs.map((run) => {
               const config = statusConfig[run.status as keyof typeof statusConfig];
               return (
@@ -344,7 +344,7 @@ function RunsTab({
                   key={run.id}
                   onClick={() => setSelectedRunId(run.id === selectedRunId ? null : run.id)}
                   className={cn(
-                    'w-full text-left p-3 rounded-lg border transition-colors',
+                    'min-w-[200px] lg:min-w-0 w-full text-left p-3 rounded-lg border transition-colors flex-shrink-0 lg:flex-shrink',
                     selectedRunId === run.id
                       ? 'bg-primary/10 border-primary'
                       : 'bg-card border-border hover:border-muted-foreground'
@@ -386,7 +386,7 @@ function RunsTab({
       </div>
 
       {/* Log Viewer */}
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 w-full">
         <h2 className="text-lg font-semibold mb-4">Logs</h2>
         {!selectedRunId ? (
           <div className="text-muted-foreground text-center py-8">
@@ -420,28 +420,28 @@ function RunsTab({
               return (
                 <div key={log.id} className="bg-card rounded-lg border border-border overflow-hidden">
                   {/* Header */}
-                  <div className="flex items-center gap-3 px-4 py-3 bg-muted/30 border-b border-border">
+                  <div className="flex flex-wrap items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 bg-muted/30 border-b border-border">
                     <span className={cn('px-2 py-1 rounded text-xs font-semibold text-white', agent.color)}>
                       {agent.icon} {agent.label}
                     </span>
                     <span className={cn('text-xs font-medium', event.color)}>
                       {event.label}
                     </span>
-                    <span className="text-xs text-muted-foreground ml-auto">
+                    <span className="text-xs text-muted-foreground sm:ml-auto">
                       {formatDate(log.timestamp)}
                     </span>
                   </div>
 
                   {/* Content */}
-                  <div className="p-4 space-y-4">
+                  <div className="p-3 sm:p-4 space-y-3 sm:space-y-4">
                     {log.prompt && (
                       <div>
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-semibold text-cyan-400 uppercase tracking-wide">
-                            → What we asked the agent
+                          <span className="text-[10px] sm:text-xs font-semibold text-cyan-400 uppercase tracking-wide">
+                            → What we asked
                           </span>
                         </div>
-                        <pre className="text-xs bg-cyan-950/30 border border-cyan-900/50 text-cyan-100 p-3 rounded-lg overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap">
+                        <pre className="text-[10px] sm:text-xs bg-cyan-950/30 border border-cyan-900/50 text-cyan-100 p-2 sm:p-3 rounded-lg overflow-x-auto max-h-48 sm:max-h-60 overflow-y-auto whitespace-pre-wrap break-words">
                           {log.prompt.slice(0, 2000)}
                           {log.prompt.length > 2000 && '\n\n... (truncated)'}
                         </pre>
@@ -451,11 +451,11 @@ function RunsTab({
                     {log.response && (
                       <div>
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-semibold text-green-400 uppercase tracking-wide">
+                          <span className="text-[10px] sm:text-xs font-semibold text-green-400 uppercase tracking-wide">
                             ← Agent response
                           </span>
                         </div>
-                        <pre className="text-xs bg-green-950/30 border border-green-900/50 text-green-100 p-3 rounded-lg overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap">
+                        <pre className="text-[10px] sm:text-xs bg-green-950/30 border border-green-900/50 text-green-100 p-2 sm:p-3 rounded-lg overflow-x-auto max-h-48 sm:max-h-60 overflow-y-auto whitespace-pre-wrap break-words">
                           {log.response.slice(0, 3000)}
                           {log.response.length > 3000 && '\n\n... (truncated)'}
                         </pre>
