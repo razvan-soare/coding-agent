@@ -91,3 +91,48 @@ export function hasRemote(cwd: string, remote = 'origin'): boolean {
     return false;
   }
 }
+
+export function resetToLastCommit(cwd: string): boolean {
+  try {
+    // Check if there are any commits
+    const hasCommits = getLatestCommitSha(cwd) !== '';
+
+    if (hasCommits) {
+      // Reset all changes to last commit
+      execSync('git reset --hard HEAD', { cwd, encoding: 'utf-8' });
+      // Clean untracked files
+      execSync('git clean -fd', { cwd, encoding: 'utf-8' });
+    } else {
+      // No commits yet, just clean up
+      execSync('git checkout -- . 2>/dev/null || true', { cwd, encoding: 'utf-8' });
+      execSync('git clean -fd', { cwd, encoding: 'utf-8' });
+    }
+    return true;
+  } catch (error) {
+    console.warn('Failed to reset git state:', error);
+    return false;
+  }
+}
+
+export function stashChanges(cwd: string, message?: string): boolean {
+  try {
+    const status = getGitStatus(cwd);
+    if (!status.hasChanges) return true;
+
+    const stashMsg = message || `auto-stash-${Date.now()}`;
+    execSync(`git stash push -m "${stashMsg}" --include-untracked`, { cwd, encoding: 'utf-8' });
+    return true;
+  } catch (error) {
+    console.warn('Failed to stash changes:', error);
+    return false;
+  }
+}
+
+export function getGitDiff(cwd: string): string {
+  try {
+    // Get diff including staged and unstaged
+    return execSync('git diff HEAD', { cwd, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
+  } catch {
+    return '';
+  }
+}

@@ -5,7 +5,15 @@ export interface DeveloperResult extends AgentResult {
   // Developer agent just implements, success is based on exit code
 }
 
-function buildDeveloperPrompt(task: Task, reviewerFeedback?: string): string {
+export interface RetryContext {
+  attemptNumber: number;
+  maxAttempts: number;
+  previousError?: string;
+  timedOut?: boolean;
+  reviewerFeedback?: string;
+}
+
+function buildDeveloperPrompt(task: Task, retryContext?: RetryContext): string {
   let prompt = `You are a software developer implementing a feature. Here is your task:
 
 Title: ${task.title}
@@ -22,15 +30,39 @@ ${task.description}
 
 Do not ask clarifying questions. Just implement the task.`;
 
-  if (reviewerFeedback) {
+  if (retryContext && retryContext.attemptNumber > 1) {
     prompt += `
 
-[IMPORTANT: Reviewer Feedback]
-The previous implementation had issues that need to be fixed:
+[IMPORTANT: Retry Attempt ${retryContext.attemptNumber}/${retryContext.maxAttempts}]
+The previous attempt failed. Here's what went wrong:`;
 
-${reviewerFeedback}
+    if (retryContext.timedOut) {
+      prompt += `
+- The previous attempt TIMED OUT due to inactivity
+- This usually means the process got stuck or was waiting for input
+- Try a different approach or break down the work into smaller steps
+- Make sure to produce output regularly so we know you're making progress`;
+    }
 
-Address ALL the issues mentioned above in your implementation.`;
+    if (retryContext.previousError) {
+      prompt += `
+- Error from previous attempt: ${retryContext.previousError}`;
+    }
+
+    if (retryContext.reviewerFeedback) {
+      prompt += `
+
+[Reviewer Feedback]
+The reviewer found these issues that need to be fixed:
+
+${retryContext.reviewerFeedback}
+
+Address ALL the issues mentioned above.`;
+    }
+
+    prompt += `
+
+Learn from these issues and try a different approach if needed.`;
   }
 
   return prompt;
@@ -40,11 +72,11 @@ export async function runDeveloper(options: {
   runId: string;
   project: Project;
   task: Task;
-  reviewerFeedback?: string;
+  retryContext?: RetryContext;
 }): Promise<DeveloperResult> {
-  const { runId, project, task, reviewerFeedback } = options;
+  const { runId, project, task, retryContext } = options;
 
-  const prompt = buildDeveloperPrompt(task, reviewerFeedback);
+  const prompt = buildDeveloperPrompt(task, retryContext);
 
   const result = await runAgent({
     runId,

@@ -10,14 +10,15 @@ import {
   logAgentComplete,
   updateRunTask,
   updateTaskStatus,
+  addTaskComment,
   type Project,
   type Run,
   type Task,
 } from './db/index.js';
-import { runPlanner } from './agents/planner.js';
-import { runDeveloper } from './agents/developer.js';
+import { runPlanner, runPlannerRecovery, type FailedTaskContext } from './agents/planner.js';
+import { runDeveloper, type RetryContext } from './agents/developer.js';
 import { runReviewer, formatReviewFeedback } from './agents/reviewer.js';
-import { getGitStatus, stageAllChanges, commit, push, hasRemote } from './git/operations.js';
+import { getGitStatus, stageAllChanges, commit, push, hasRemote, resetToLastCommit } from './git/operations.js';
 
 const MAX_RETRIES = 3;
 
@@ -74,91 +75,64 @@ async function getOrCreateTask(run: Run, project: Project): Promise<Task | null>
   return task;
 }
 
-async function developAndReview(
-  run: Run,
-  project: Project,
-  task: Task
-): Promise<{ approved: boolean; feedback: string }> {
-  // Run developer
-  console.log('Running developer agent...');
-  const devResult = await runDeveloper({
-    runId: run.id,
-    project,
-    task,
-  });
-
-  if (!devResult.success) {
-    return {
-      approved: false,
-      feedback: 'Developer agent failed to complete',
-    };
-  }
-
-  // Check if there are changes to review
-  const status = getGitStatus(project.path);
-  if (!status.hasChanges) {
-    console.log('Developer made no changes');
-    return {
-      approved: true,
-      feedback: 'No changes made',
-    };
-  }
-
-  // Run reviewer
-  console.log('Running reviewer agent...');
-  const reviewResult = await runReviewer({
-    runId: run.id,
-    project,
-  });
-
-  if (!reviewResult.success || !reviewResult.review) {
-    // If reviewer fails, treat as approved with warning
-    console.warn('Reviewer failed, proceeding anyway');
-    return {
-      approved: true,
-      feedback: 'Reviewer failed to complete',
-    };
-  }
-
-  if (reviewResult.review.approved) {
-    return {
-      approved: true,
-      feedback: '',
-    };
-  }
-
-  // Not approved - format feedback for developer
-  const feedback = formatReviewFeedback(reviewResult.review.issues);
-  return {
-    approved: false,
-    feedback,
-  };
+interface AttemptResult {
+  success: boolean;
+  timedOut: boolean;
+  error?: string;
+  reviewerFeedback?: string;
 }
 
 async function runDeveloperReviewerLoop(
   run: Run,
   project: Project,
   task: Task
-): Promise<{ success: boolean; feedback: string }> {
-  let reviewerFeedback: string | undefined;
+): Promise<{ success: boolean; lastAttempt: AttemptResult }> {
+  let lastAttempt: AttemptResult = { success: false, timedOut: false };
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     console.log(`\n--- Attempt ${attempt}/${MAX_RETRIES} ---`);
 
+    // IMPROVEMENT 3: Reset git state before retry (except first attempt)
+    if (attempt > 1) {
+      console.log('Resetting git state to last commit...');
+      const resetSuccess = resetToLastCommit(project.path);
+      if (resetSuccess) {
+        console.log('Git state reset successfully');
+      } else {
+        console.warn('Failed to reset git state, continuing anyway');
+      }
+    }
+
     // Update task status
     updateTaskStatus(task.id, 'in_progress');
 
-    // Run developer (with feedback if not first attempt)
+    // IMPROVEMENT 1: Build retry context with error information
+    const retryContext: RetryContext | undefined = attempt > 1 ? {
+      attemptNumber: attempt,
+      maxAttempts: MAX_RETRIES,
+      previousError: lastAttempt.error,
+      timedOut: lastAttempt.timedOut,
+      reviewerFeedback: lastAttempt.reviewerFeedback,
+    } : undefined;
+
+    // Run developer
     console.log('Running developer agent...');
     const devResult = await runDeveloper({
       runId: run.id,
       project,
       task,
-      reviewerFeedback,
+      retryContext,
     });
 
     if (!devResult.success) {
       console.error('Developer agent failed');
+      lastAttempt = {
+        success: false,
+        timedOut: devResult.timedOut,
+        error: devResult.timedOut
+          ? 'Developer timed out due to inactivity'
+          : 'Developer agent failed to complete',
+      };
       incrementTaskRetry(task.id);
       continue;
     }
@@ -167,7 +141,10 @@ async function runDeveloperReviewerLoop(
     const status = getGitStatus(project.path);
     if (!status.hasChanges) {
       console.log('Developer made no changes');
-      return { success: true, feedback: 'No changes made' };
+      return {
+        success: true,
+        lastAttempt: { success: true, timedOut: false },
+      };
     }
 
     // Update task status for review
@@ -182,25 +159,95 @@ async function runDeveloperReviewerLoop(
 
     if (!reviewResult.success || !reviewResult.review) {
       console.warn('Reviewer failed, proceeding with approval');
-      return { success: true, feedback: 'Reviewer unavailable' };
+      return {
+        success: true,
+        lastAttempt: { success: true, timedOut: false },
+      };
     }
 
     if (reviewResult.review.approved) {
       console.log('Changes approved by reviewer');
-      return { success: true, feedback: '' };
+      return {
+        success: true,
+        lastAttempt: { success: true, timedOut: false },
+      };
     }
 
-    // Not approved
-    reviewerFeedback = formatReviewFeedback(reviewResult.review.issues);
-    console.log('Reviewer found issues:\n', reviewerFeedback);
+    // Not approved - capture feedback for next attempt
+    const feedback = formatReviewFeedback(reviewResult.review.issues);
+    console.log('Reviewer found issues:\n', feedback);
+
+    lastAttempt = {
+      success: false,
+      timedOut: false,
+      reviewerFeedback: feedback,
+      error: 'Reviewer rejected the changes',
+    };
+
     incrementTaskRetry(task.id);
   }
 
   // Max retries exceeded
   return {
     success: false,
-    feedback: reviewerFeedback || 'Max retries exceeded',
+    lastAttempt,
   };
+}
+
+async function handleFailedTask(
+  run: Run,
+  project: Project,
+  task: Task,
+  lastAttempt: AttemptResult
+): Promise<Task | null> {
+  console.log('\n--- Task Failed: Requesting Planner Recovery ---');
+
+  // IMPROVEMENT 2: Ask planner for a simpler alternative
+  const failedContext: FailedTaskContext = {
+    task,
+    attempts: MAX_RETRIES,
+    lastError: lastAttempt.error || 'Unknown error',
+    reviewerFeedback: lastAttempt.reviewerFeedback,
+  };
+
+  const recoveryResult = await runPlannerRecovery({
+    runId: run.id,
+    project,
+    failedContext,
+  });
+
+  if (!recoveryResult.success) {
+    console.error('Planner recovery failed');
+    return null;
+  }
+
+  if (recoveryResult.skipTask) {
+    console.log(`Planner suggests skipping task: ${recoveryResult.skipReason}`);
+    addTaskComment(task.id, `Skipped: ${recoveryResult.skipReason}`);
+    updateTaskStatus(task.id, 'failed');
+    return null;
+  }
+
+  if (!recoveryResult.task) {
+    console.error('Planner recovery did not return a valid task');
+    return null;
+  }
+
+  // Mark original task as failed with comment
+  addTaskComment(task.id, `Failed after ${MAX_RETRIES} attempts. Replaced with simpler task.`);
+  updateTaskStatus(task.id, 'failed');
+
+  // Create the simpler replacement task
+  const newTask = createTask({
+    project_id: project.id,
+    title: recoveryResult.task.title,
+    description: recoveryResult.task.description,
+  });
+
+  console.log(`Created simpler replacement task: ${newTask.title}`);
+  updateRunTask(run.id, newTask.id);
+
+  return newTask;
 }
 
 export async function runOrchestrator(projectId: string): Promise<OrchestratorResult> {
@@ -227,7 +274,7 @@ export async function runOrchestrator(projectId: string): Promise<OrchestratorRe
 
   try {
     // Get or create a task
-    const task = await getOrCreateTask(run, project);
+    let task = await getOrCreateTask(run, project);
 
     if (!task) {
       finishRun(run.id, 'completed', 'No tasks to execute');
@@ -243,20 +290,35 @@ export async function runOrchestrator(projectId: string): Promise<OrchestratorRe
     console.log(`\nExecuting task: ${task.title}`);
 
     // Run developer/reviewer loop
-    const loopResult = await runDeveloperReviewerLoop(run, project, task);
+    let loopResult = await runDeveloperReviewerLoop(run, project, task);
+
+    // IMPROVEMENT 2: If task failed, try planner recovery
+    if (!loopResult.success) {
+      // Reset git state before recovery attempt
+      resetToLastCommit(project.path);
+
+      const recoveryTask = await handleFailedTask(run, project, task, loopResult.lastAttempt);
+
+      if (recoveryTask) {
+        // Try the simpler task
+        task = recoveryTask;
+        console.log(`\nExecuting recovery task: ${task.title}`);
+        loopResult = await runDeveloperReviewerLoop(run, project, task);
+      }
+    }
 
     if (!loopResult.success) {
-      // Mark task as failed
+      // Still failed after recovery attempt
       updateTaskStatus(task.id, 'failed');
-      logAgentError(run.id, 'orchestrator', `Task failed after ${MAX_RETRIES} attempts: ${loopResult.feedback}`);
-      finishRun(run.id, 'failed', `Task failed: ${loopResult.feedback}`);
+      logAgentError(run.id, 'orchestrator', `Task failed after recovery attempt`);
+      finishRun(run.id, 'failed', `Task failed: ${task.title}`);
 
       return {
         success: false,
         runId: run.id,
         taskId: task.id,
         commitSha: null,
-        summary: `Task failed after ${MAX_RETRIES} attempts`,
+        summary: `Task failed after ${MAX_RETRIES} attempts and recovery`,
       };
     }
 

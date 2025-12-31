@@ -170,3 +170,132 @@ export async function runPlanner(options: {
     milestoneComplete,
   };
 }
+
+export interface FailedTaskContext {
+  task: Task;
+  attempts: number;
+  lastError: string;
+  reviewerFeedback?: string;
+}
+
+function buildRecoveryPrompt(
+  overviewContent: string,
+  failedContext: FailedTaskContext
+): string {
+  return `You are a technical project planner. A task has failed after ${failedContext.attempts} attempts and needs to be broken down into simpler subtasks.
+
+[Project Overview]
+${overviewContent}
+
+[Failed Task]
+Title: ${failedContext.task.title}
+Description: ${failedContext.task.description}
+
+[What Went Wrong]
+${failedContext.lastError}
+${failedContext.reviewerFeedback ? `\nReviewer feedback: ${failedContext.reviewerFeedback}` : ''}
+
+[Instructions]
+The original task was too complex or had issues. Generate a SIMPLER, more focused task that:
+1. Addresses a smaller piece of the original goal
+2. Avoids the issues that caused the failure
+3. Can be completed in a single session
+
+Output ONLY a JSON object (no markdown, no explanation):
+{
+  "title": "short descriptive title for the simpler task",
+  "description": "detailed but focused implementation instructions"
+}
+
+If the task fundamentally cannot be done (e.g., missing dependencies, wrong approach), output:
+{
+  "skip_task": true,
+  "reason": "explanation of why this task should be skipped"
+}
+
+Do not ask questions. Propose a concrete simpler alternative.`;
+}
+
+export interface RecoveryResult extends AgentResult {
+  task: PlannerOutput | null;
+  skipTask: boolean;
+  skipReason?: string;
+}
+
+export async function runPlannerRecovery(options: {
+  runId: string;
+  project: Project;
+  failedContext: FailedTaskContext;
+}): Promise<RecoveryResult> {
+  const { runId, project, failedContext } = options;
+
+  // Read project overview
+  let overviewContent: string;
+  try {
+    overviewContent = readFileSync(project.overview_path, 'utf-8');
+  } catch (error) {
+    return {
+      success: false,
+      output: `Failed to read project overview: ${error}`,
+      duration: 0,
+      timedOut: false,
+      task: null,
+      skipTask: false,
+    };
+  }
+
+  const prompt = buildRecoveryPrompt(overviewContent, failedContext);
+
+  const result = await runAgent({
+    runId,
+    prompt,
+    cwd: project.path,
+    agentType: 'planner',
+  });
+
+  // Parse the output
+  const jsonStr = extractJsonFromOutput(result.output);
+  if (!jsonStr) {
+    return {
+      ...result,
+      task: null,
+      skipTask: false,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(jsonStr);
+
+    if (parsed.skip_task === true) {
+      return {
+        ...result,
+        task: null,
+        skipTask: true,
+        skipReason: parsed.reason,
+      };
+    }
+
+    if (parsed.title && parsed.description) {
+      return {
+        ...result,
+        task: {
+          title: parsed.title,
+          description: parsed.description,
+        },
+        skipTask: false,
+      };
+    }
+
+    return {
+      ...result,
+      task: null,
+      skipTask: false,
+    };
+  } catch {
+    return {
+      ...result,
+      task: null,
+      skipTask: false,
+    };
+  }
+}
