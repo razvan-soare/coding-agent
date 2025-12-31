@@ -7,5 +7,5 @@ data/*.db-shm
 *.log
 .DS_Store
 
-# Projects have their own git repos
-projects/
+# Managed projects have their own git repos
+/projects/
