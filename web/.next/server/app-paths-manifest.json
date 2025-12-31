@@ -1,12 +1,5 @@
 {
   "/api/projects/[id]/route": "app/api/projects/[id]/route.js",
-  "/api/projects/route": "app/api/projects/route.js",
-  "/_not-found/page": "app/_not-found/page.js",
   "/api/runs/[id]/logs/route": "app/api/runs/[id]/logs/route.js",
-  "/api/runs/[id]/route": "app/api/runs/[id]/route.js",
-  "/api/runs/route": "app/api/runs/route.js",
-  "/api/tasks/[id]/route": "app/api/tasks/[id]/route.js",
-  "/api/tasks/route": "app/api/tasks/route.js",
-  "/page": "app/page.js",
-  "/projects/[id]/page": "app/projects/[id]/page.js"
+  "/page": "app/page.js"
 }

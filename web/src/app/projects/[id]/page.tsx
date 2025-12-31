@@ -398,37 +398,81 @@ function RunsTab({
           <div className="text-muted-foreground text-center py-8">No logs for this run</div>
         ) : (
           <div className="space-y-4">
-            {logs.map((log) => (
-              <div key={log.id} className="bg-card rounded-lg border border-border p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs font-medium uppercase text-primary">
-                    {log.agent}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{log.event}</span>
-                  <span className="text-xs text-muted-foreground ml-auto">
-                    {formatDate(log.timestamp)}
-                  </span>
+            {logs.map((log) => {
+              const agentConfig = {
+                planner: { color: 'bg-blue-500', label: 'Planner', icon: '📋' },
+                developer: { color: 'bg-green-500', label: 'Developer', icon: '💻' },
+                reviewer: { color: 'bg-yellow-500', label: 'Reviewer', icon: '🔍' },
+                orchestrator: { color: 'bg-purple-500', label: 'Orchestrator', icon: '🎯' },
+              };
+
+              const eventConfig = {
+                started: { label: 'Started', color: 'text-blue-400' },
+                prompt_sent: { label: 'Prompt Sent', color: 'text-cyan-400' },
+                response_received: { label: 'Response Received', color: 'text-green-400' },
+                error: { label: 'Error', color: 'text-destructive' },
+                completed: { label: 'Completed', color: 'text-green-400' },
+              };
+
+              const agent = agentConfig[log.agent as keyof typeof agentConfig] || { color: 'bg-gray-500', label: log.agent, icon: '⚙️' };
+              const event = eventConfig[log.event as keyof typeof eventConfig] || { label: log.event, color: 'text-muted-foreground' };
+
+              return (
+                <div key={log.id} className="bg-card rounded-lg border border-border overflow-hidden">
+                  {/* Header */}
+                  <div className="flex items-center gap-3 px-4 py-3 bg-muted/30 border-b border-border">
+                    <span className={cn('px-2 py-1 rounded text-xs font-semibold text-white', agent.color)}>
+                      {agent.icon} {agent.label}
+                    </span>
+                    <span className={cn('text-xs font-medium', event.color)}>
+                      {event.label}
+                    </span>
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {formatDate(log.timestamp)}
+                    </span>
+                  </div>
+
+                  {/* Content */}
+                  <div className="p-4 space-y-4">
+                    {log.prompt && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-semibold text-cyan-400 uppercase tracking-wide">
+                            → What we asked the agent
+                          </span>
+                        </div>
+                        <pre className="text-xs bg-cyan-950/30 border border-cyan-900/50 text-cyan-100 p-3 rounded-lg overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap">
+                          {log.prompt.slice(0, 2000)}
+                          {log.prompt.length > 2000 && '\n\n... (truncated)'}
+                        </pre>
+                      </div>
+                    )}
+
+                    {log.response && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-semibold text-green-400 uppercase tracking-wide">
+                            ← Agent response
+                          </span>
+                        </div>
+                        <pre className="text-xs bg-green-950/30 border border-green-900/50 text-green-100 p-3 rounded-lg overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap">
+                          {log.response.slice(0, 3000)}
+                          {log.response.length > 3000 && '\n\n... (truncated)'}
+                        </pre>
+                      </div>
+                    )}
+
+                    {!log.prompt && !log.response && (
+                      <div className="text-sm text-muted-foreground italic">
+                        {log.event === 'started' && `${agent.label} agent started`}
+                        {log.event === 'completed' && `${agent.label} agent completed successfully`}
+                        {log.event === 'error' && 'An error occurred'}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                {log.prompt && (
-                  <div className="mb-2">
-                    <div className="text-xs text-muted-foreground mb-1">Prompt:</div>
-                    <pre className="text-xs bg-muted p-2 rounded overflow-x-auto max-h-40 overflow-y-auto">
-                      {log.prompt.slice(0, 1000)}
-                      {log.prompt.length > 1000 && '...'}
-                    </pre>
-                  </div>
-                )}
-                {log.response && (
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Response:</div>
-                    <pre className="text-xs bg-muted p-2 rounded overflow-x-auto max-h-40 overflow-y-auto">
-                      {log.response.slice(0, 2000)}
-                      {log.response.length > 2000 && '...'}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
