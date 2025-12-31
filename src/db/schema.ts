@@ -1,5 +1,25 @@
 import { getDb } from './client.js';
 
+function columnExists(tableName: string, columnName: string): boolean {
+  const db = getDb();
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  return columns.some(col => col.name === columnName);
+}
+
+function runMigrations(): void {
+  const db = getDb();
+
+  // Migration: Add priority and is_injected columns to tasks table
+  if (!columnExists('tasks', 'priority')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority DESC)`);
+  }
+
+  if (!columnExists('tasks', 'is_injected')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN is_injected INTEGER NOT NULL DEFAULT 0`);
+  }
+}
+
 export function initializeSchema(): void {
   const db = getDb();
 
@@ -73,4 +93,7 @@ export function initializeSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_runs_task ON runs(task_id);
     CREATE INDEX IF NOT EXISTS idx_logs_run ON logs(run_id);
   `);
+
+  // Run migrations for existing databases
+  runMigrations();
 }

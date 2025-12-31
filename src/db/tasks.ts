@@ -51,7 +51,7 @@ export function getNextPendingTask(projectId: string): Task | null {
   return db.prepare(`
     SELECT * FROM tasks
     WHERE project_id = ? AND status = 'pending'
-    ORDER BY created_at ASC
+    ORDER BY priority DESC, created_at ASC
     LIMIT 1
   `).get(projectId) as Task | null;
 }
@@ -96,4 +96,31 @@ export function deleteTask(id: string): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+export function createInjectedTask(data: {
+  project_id: string;
+  title: string;
+  description: string;
+  milestone_id?: string;
+  priority?: number;
+}): Task {
+  const db = getDb();
+  const id = uuid();
+  const now = new Date().toISOString();
+  const priority = data.priority ?? 100; // Default high priority for injected tasks
+
+  db.prepare(`
+    INSERT INTO tasks (id, project_id, milestone_id, title, description, priority, is_injected, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+  `).run(id, data.project_id, data.milestone_id ?? null, data.title, data.description, priority, now, now);
+
+  return getTask(id)!;
+}
+
+export function updateTaskPriority(id: string, priority: number): Task | null {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.prepare('UPDATE tasks SET priority = ?, updated_at = ? WHERE id = ?').run(priority, now, id);
+  return getTask(id);
 }

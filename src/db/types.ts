@@ -30,6 +30,8 @@ export interface Task {
   description: string;
   status: TaskStatus;
   retry_count: number;
+  priority: number;
+  is_injected: number;
   comments: string | null;
   created_at: string;
   updated_at: string;
