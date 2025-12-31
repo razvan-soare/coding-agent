@@ -4,7 +4,7 @@ import { useState, use } from 'react';
 import Link from 'next/link';
 import { useProject } from '@/lib/hooks/useProjects';
 import { useCreateTask, useDeleteTask } from '@/lib/hooks/useTasks';
-import { useLogs } from '@/lib/hooks/useRuns';
+import { useRuns, useLogs } from '@/lib/hooks/useRuns';
 import { formatDate, formatDuration, cn } from '@/lib/utils';
 import {
   ArrowLeft,
@@ -101,7 +101,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
 
       {activeTab === 'runs' && (
         <RunsTab
-          runs={project.runs}
+          projectId={id}
+          initialRuns={project.runs}
           selectedRunId={selectedRunId}
           setSelectedRunId={setSelectedRunId}
         />
@@ -310,15 +311,23 @@ function TasksTab({
 }
 
 function RunsTab({
-  runs,
+  projectId,
+  initialRuns,
   selectedRunId,
   setSelectedRunId,
 }: {
-  runs: any[];
+  projectId: string;
+  initialRuns: any[];
   selectedRunId: string | null;
   setSelectedRunId: (id: string | null) => void;
 }) {
+  const [limit, setLimit] = useState(10);
+  const { data: runs, isLoading: runsLoading } = useRuns(projectId, limit);
   const { data: logs, isLoading: logsLoading } = useLogs(selectedRunId || '');
+
+  // Use fetched runs or fall back to initial
+  const displayRuns = runs || initialRuns;
+  const hasMore = displayRuns.length === limit;
 
   const statusConfig = {
     running: { color: 'text-blue-400', bg: 'bg-blue-400' },
@@ -330,58 +339,74 @@ function RunsTab({
     <div className="flex flex-col lg:flex-row gap-6">
       {/* Run List */}
       <div className="w-full lg:w-80 flex-shrink-0">
-        <h2 className="text-lg font-semibold mb-4">Recent Runs</h2>
-        {runs.length === 0 ? (
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Runs</h2>
+          <span className="text-xs text-muted-foreground">
+            Showing {displayRuns.length}
+          </span>
+        </div>
+        {displayRuns.length === 0 ? (
           <div className="text-muted-foreground text-center py-8">
             No runs yet. Use the CLI to run the orchestrator.
           </div>
         ) : (
-          <div className="flex lg:flex-col gap-2 overflow-x-auto pb-2 lg:pb-0">
-            {runs.map((run) => {
-              const config = statusConfig[run.status as keyof typeof statusConfig];
-              return (
-                <button
-                  key={run.id}
-                  onClick={() => setSelectedRunId(run.id === selectedRunId ? null : run.id)}
-                  className={cn(
-                    'min-w-[200px] lg:min-w-0 w-full text-left p-3 rounded-lg border transition-colors flex-shrink-0 lg:flex-shrink',
-                    selectedRunId === run.id
-                      ? 'bg-primary/10 border-primary'
-                      : 'bg-card border-border hover:border-muted-foreground'
-                  )}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span
-                      className={cn(
-                        'w-2 h-2 rounded-full',
-                        config.bg,
-                        run.status === 'running' && 'animate-pulse'
+          <>
+            <div className="flex lg:flex-col gap-2 overflow-x-auto pb-2 lg:pb-0 lg:max-h-[60vh] lg:overflow-y-auto">
+              {displayRuns.map((run) => {
+                const config = statusConfig[run.status as keyof typeof statusConfig];
+                return (
+                  <button
+                    key={run.id}
+                    onClick={() => setSelectedRunId(run.id === selectedRunId ? null : run.id)}
+                    className={cn(
+                      'min-w-[200px] lg:min-w-0 w-full text-left p-3 rounded-lg border transition-colors flex-shrink-0 lg:flex-shrink',
+                      selectedRunId === run.id
+                        ? 'bg-primary/10 border-primary'
+                        : 'bg-card border-border hover:border-muted-foreground'
+                    )}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span
+                        className={cn(
+                          'w-2 h-2 rounded-full',
+                          config.bg,
+                          run.status === 'running' && 'animate-pulse'
+                        )}
+                      />
+                      <span className="text-sm font-medium capitalize">{run.status}</span>
+                      {run.git_commit_sha && (
+                        <span className="text-xs text-muted-foreground font-mono">
+                          {run.git_commit_sha.slice(0, 7)}
+                        </span>
                       )}
-                    />
-                    <span className="text-sm font-medium capitalize">{run.status}</span>
-                    {run.git_commit_sha && (
-                      <span className="text-xs text-muted-foreground font-mono">
-                        {run.git_commit_sha.slice(0, 7)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {formatDate(run.started_at)}
-                    {run.finished_at && (
-                      <span className="ml-2">
-                        ({formatDuration(run.started_at, run.finished_at)})
-                      </span>
-                    )}
-                  </div>
-                  {run.summary && (
-                    <div className="text-xs text-muted-foreground mt-1 truncate">
-                      {run.summary}
                     </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+                    <div className="text-xs text-muted-foreground">
+                      {formatDate(run.started_at)}
+                      {run.finished_at && (
+                        <span className="ml-2">
+                          ({formatDuration(run.started_at, run.finished_at)})
+                        </span>
+                      )}
+                    </div>
+                    {run.summary && (
+                      <div className="text-xs text-muted-foreground mt-1 truncate">
+                        {run.summary}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {hasMore && (
+              <button
+                onClick={() => setLimit((prev) => prev + 20)}
+                disabled={runsLoading}
+                className="w-full mt-3 py-2 text-sm text-primary hover:text-primary/80 disabled:opacity-50"
+              >
+                {runsLoading ? 'Loading...' : 'Load more runs'}
+              </button>
+            )}
+          </>
         )}
       </div>
 

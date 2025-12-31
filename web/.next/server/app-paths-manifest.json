@@ -1,6 +1,4 @@
 {
-  "/api/projects/[id]/route": "app/api/projects/[id]/route.js",
-  "/api/runs/[id]/logs/route": "app/api/runs/[id]/logs/route.js",
   "/page": "app/page.js",
   "/projects/[id]/page": "app/projects/[id]/page.js"
 }
