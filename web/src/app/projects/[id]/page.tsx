@@ -94,16 +94,16 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           <ArrowLeft className="w-4 h-4" />
           Back to Dashboard
         </Link>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold">{project.name}</h1>
-            <p className="text-muted-foreground text-sm">{project.path}</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold truncate">{project.name}</h1>
+            <p className="text-muted-foreground text-xs sm:text-sm truncate">{project.path}</p>
           </div>
           <button
             onClick={() => triggerRun.mutate(id)}
             disabled={triggerRun.isPending || runStatus?.running}
             className={cn(
-              'inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors',
+              'inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors w-full sm:w-auto flex-shrink-0',
               runStatus?.running
                 ? 'bg-blue-500/20 text-blue-400 cursor-not-allowed'
                 : 'bg-primary text-primary-foreground hover:bg-primary/90'
