@@ -33,11 +33,12 @@ async function stopInstance(projectId: string): Promise<{ instance: ProjectInsta
   return res.json();
 }
 
-export function useInstance(projectId: string) {
+export function useInstance(projectId: string, options?: { pollWhileActive?: boolean }) {
   return useQuery({
     queryKey: ['instance', projectId],
     queryFn: () => fetchInstance(projectId),
-    refetchInterval: 2000, // Poll every 2 seconds to check status
+    // Only poll when explicitly requested (e.g., on Preview tab)
+    refetchInterval: options?.pollWhileActive ? 2000 : false,
     enabled: !!projectId,
   });
 }

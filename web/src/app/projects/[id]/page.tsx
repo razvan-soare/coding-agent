@@ -36,10 +36,12 @@ type Tab = 'tasks' | 'runs' | 'knowledge' | 'preview';
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { data: project, isLoading, error } = useProject(id);
-  const { data: instance } = useInstance(id);
+  const [activeTab, setActiveTab] = useState<Tab>('tasks');
+
+  // Only poll instance status when on Preview tab
+  const { data: instance } = useInstance(id, { pollWhileActive: activeTab === 'preview' });
   const startInstance = useStartInstance();
   const stopInstance = useStopInstance();
-  const [activeTab, setActiveTab] = useState<Tab>('tasks');
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
