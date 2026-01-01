@@ -78,65 +78,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           <ArrowLeft className="w-4 h-4" />
           Back to Dashboard
         </Link>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold">{project.name}</h1>
-            <p className="text-muted-foreground text-sm">{project.path}</p>
-          </div>
-
-          {/* Instance Controls */}
-          <div className="flex items-center gap-3">
-            {instance?.status === 'running' || instance?.status === 'starting' ? (
-              <>
-                <div className="flex items-center gap-2 text-sm">
-                  {instance.status === 'starting' ? (
-                    <Loader2 className="w-4 h-4 text-yellow-400 animate-spin" />
-                  ) : (
-                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                  )}
-                  <span className="text-muted-foreground">
-                    {instance.status === 'starting' ? 'Starting...' : `Running on port ${instance.port}`}
-                  </span>
-                </div>
-                {instance.status === 'running' && (
-                  <a
-                    href={`http://localhost:${instance.port}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    Open Preview
-                  </a>
-                )}
-                <button
-                  onClick={() => stopInstance.mutate(id)}
-                  disabled={stopInstance.isPending}
-                  className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-destructive text-destructive-foreground rounded-lg hover:bg-destructive/90 disabled:opacity-50"
-                >
-                  <Square className="w-4 h-4" />
-                  Stop
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => startInstance.mutate(id)}
-                disabled={startInstance.isPending}
-                className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-              >
-                {startInstance.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4" />
-                )}
-                Start Dev Server
-              </button>
-            )}
-            {instance?.status === 'error' && (
-              <span className="text-xs text-destructive">{instance.error}</span>
-            )}
-          </div>
-        </div>
+        <h1 className="text-2xl font-bold">{project.name}</h1>
+        <p className="text-muted-foreground text-sm">{project.path}</p>
       </div>
 
       {/* Tabs */}
@@ -201,7 +144,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       )}
 
       {activeTab === 'preview' && (
-        <PreviewTab instance={instance} projectId={id} startInstance={startInstance} />
+        <PreviewTab instance={instance} projectId={id} startInstance={startInstance} stopInstance={stopInstance} />
       )}
     </div>
   );
@@ -609,14 +552,43 @@ function PreviewTab({
   instance,
   projectId,
   startInstance,
+  stopInstance,
 }: {
   instance: { status: string; port: number; error?: string } | null | undefined;
   projectId: string;
   startInstance: { mutate: (id: string) => void; isPending: boolean };
+  stopInstance: { mutate: (id: string) => void; isPending: boolean };
 }) {
   const isRunning = instance?.status === 'running';
   const isStarting = instance?.status === 'starting';
-  const previewUrl = isRunning ? `http://localhost:${instance.port}` : null;
+
+  // Custom base URL from localStorage
+  const [customBaseUrl, setCustomBaseUrl] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('preview-base-url') || '';
+    }
+    return '';
+  });
+  const [showSettings, setShowSettings] = useState(false);
+
+  const saveBaseUrl = (url: string) => {
+    setCustomBaseUrl(url);
+    if (typeof window !== 'undefined') {
+      if (url) {
+        localStorage.setItem('preview-base-url', url);
+      } else {
+        localStorage.removeItem('preview-base-url');
+      }
+    }
+  };
+
+  // Build the preview URL
+  const localUrl = isRunning ? `http://localhost:${instance.port}` : null;
+  const previewUrl = isRunning
+    ? customBaseUrl
+      ? `${customBaseUrl.replace(/\/$/, '')}:${instance.port}`
+      : localUrl
+    : null;
 
   if (!isRunning && !isStarting) {
     return (
@@ -626,7 +598,7 @@ function PreviewTab({
         </div>
         <h3 className="text-lg font-semibold mb-2">Start the Dev Server</h3>
         <p className="text-muted-foreground mb-6 max-w-md">
-          Start the development server to preview your project. The preview will update automatically as changes are made.
+          Start the development server to preview your project.
         </p>
         <button
           onClick={() => startInstance.mutate(projectId)}
@@ -643,6 +615,20 @@ function PreviewTab({
         {instance?.status === 'error' && (
           <p className="mt-4 text-sm text-destructive">{instance.error}</p>
         )}
+
+        {/* Settings for custom URL */}
+        <div className="mt-8 w-full max-w-md">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+            <span>Custom preview URL (for Tailscale/remote access):</span>
+          </div>
+          <input
+            type="text"
+            value={customBaseUrl}
+            onChange={(e) => saveBaseUrl(e.target.value)}
+            placeholder="e.g., http://omarchy.tail0a867a.ts.net"
+            className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
       </div>
     );
   }
@@ -661,30 +647,64 @@ function PreviewTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm">
-          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          <span className="text-muted-foreground">Live at</span>
+      {/* Controls row - stacks on mobile */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 text-sm min-w-0">
+          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+          <span className="text-muted-foreground flex-shrink-0">Port {instance.port}</span>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
           <a
             href={previewUrl!}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary hover:underline"
+            className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90"
           >
-            {previewUrl}
+            <ExternalLink className="w-3 h-3" />
+            Open
           </a>
+          <button
+            onClick={() => setShowSettings(!showSettings)}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded",
+              showSettings ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+          >
+            <AlertCircle className="w-3 h-3" />
+            URL
+          </button>
+          <button
+            onClick={() => stopInstance.mutate(projectId)}
+            disabled={stopInstance.isPending}
+            className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-destructive text-destructive-foreground rounded hover:bg-destructive/90 disabled:opacity-50"
+          >
+            <Square className="w-3 h-3" />
+            Stop
+          </button>
         </div>
-        <a
-          href={previewUrl!}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
-        >
-          <ExternalLink className="w-4 h-4" />
-          Open in New Tab
-        </a>
       </div>
 
+      {/* Custom URL settings */}
+      {showSettings && (
+        <div className="p-3 bg-muted/50 rounded-lg border border-border">
+          <label className="block text-xs text-muted-foreground mb-1">
+            Custom base URL (for Tailscale/remote access):
+          </label>
+          <input
+            type="text"
+            value={customBaseUrl}
+            onChange={(e) => saveBaseUrl(e.target.value)}
+            placeholder="e.g., http://omarchy.tail0a867a.ts.net"
+            className="w-full px-2 py-1 text-sm bg-input border border-border rounded focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Preview: {previewUrl}
+          </p>
+        </div>
+      )}
+
+      {/* iframe preview */}
       <div className="border border-border rounded-lg overflow-hidden bg-white">
         <iframe
           src={previewUrl!}
