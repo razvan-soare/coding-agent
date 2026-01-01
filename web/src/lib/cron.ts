@@ -7,11 +7,24 @@ import { getAllProjects, getProject } from './db';
 // cron-parser v5 exports CronExpressionParser as default
 const CronParser = (cronParserModule as { default?: { parse: (expr: string, options?: { tz?: string }) => { next: () => { toDate: () => Date } } } }).default;
 
-// Map of project ID to scheduled task
-const scheduledJobs = new Map<string, ScheduledTask>();
+// Use global to persist cron state across hot-reloads in development
+// This prevents multiple cron instances from being created
+const globalForCron = globalThis as unknown as {
+  __cronJobs?: Map<string, ScheduledTask>;
+  __cronRunning?: Map<string, { pid: number; startedAt: Date }>;
+  __cronInitialized?: boolean;
+};
 
-// Track running processes to prevent concurrent runs
-const runningProcesses = new Map<string, { pid: number; startedAt: Date }>();
+// Initialize or reuse existing maps
+if (!globalForCron.__cronJobs) {
+  globalForCron.__cronJobs = new Map<string, ScheduledTask>();
+}
+if (!globalForCron.__cronRunning) {
+  globalForCron.__cronRunning = new Map<string, { pid: number; startedAt: Date }>();
+}
+
+const scheduledJobs = globalForCron.__cronJobs;
+const runningProcesses = globalForCron.__cronRunning;
 
 // Path to the CLI
 const CLI_PATH = resolve(process.cwd(), '../dist/index.js');
@@ -188,14 +201,14 @@ export function cleanupCronJobs(): void {
   for (const [projectId] of scheduledJobs) {
     stopCronJob(projectId);
   }
+  // Reset initialized flag so cron can be re-initialized if needed
+  globalForCron.__cronInitialized = false;
 }
 
-// Initialize on module load (will be called when Next.js server starts)
-let initialized = false;
-
+// Initialize cron jobs only once, even across hot-reloads
 export function ensureCronInitialized(): void {
-  if (!initialized) {
-    initialized = true;
+  if (!globalForCron.__cronInitialized) {
+    globalForCron.__cronInitialized = true;
     initializeCronJobs();
   }
 }
