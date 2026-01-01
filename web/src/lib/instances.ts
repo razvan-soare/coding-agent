@@ -1,6 +1,6 @@
 import { spawn, ChildProcess, execSync } from 'child_process';
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
 import { createServer } from 'net';
 
 export interface ProjectInstance {
@@ -8,7 +8,7 @@ export interface ProjectInstance {
   projectPath: string;
   port: number;
   pid: number;
-  status: 'starting' | 'running' | 'stopped' | 'error';
+  status: 'starting' | 'running' | 'stopped' | 'error' | 'orphaned';
   startedAt: string;
   error?: string;
 }
@@ -22,11 +22,52 @@ const BASE_PORT = 4000;
 const PORT_INCREMENT = 10;
 const usedPorts = new Set<number>();
 
+// Persistence file for instance state
+const STATE_FILE = join(process.cwd(), '.instances-state.json');
+
+// Save instance state to file
+function saveState(): void {
+  try {
+    const state = Array.from(instances.entries()).map(([id, inst]) => ({
+      ...inst,
+      // Only persist running/starting instances
+    })).filter(inst => inst.status === 'running' || inst.status === 'starting');
+    writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+  } catch (err) {
+    console.error('[Instance] Failed to save state:', err);
+  }
+}
+
+// Load instance state from file and check if processes are still alive
+function loadState(): void {
+  try {
+    if (!existsSync(STATE_FILE)) return;
+
+    const state = JSON.parse(readFileSync(STATE_FILE, 'utf-8')) as ProjectInstance[];
+
+    for (const inst of state) {
+      // Check if the port is still in use (process still running)
+      if (!isPortAvailable(inst.port)) {
+        // Process is still running, mark as orphaned since we don't have the handle
+        inst.status = 'orphaned';
+        instances.set(inst.projectId, inst);
+        usedPorts.add(inst.port);
+        console.log(`[Instance] Restored orphaned instance for ${inst.projectId} on port ${inst.port}`);
+      }
+    }
+  } catch (err) {
+    console.error('[Instance] Failed to load state:', err);
+  }
+}
+
+// Initialize: load persisted state
+loadState();
+
 // Check if a port is available
 function isPortAvailable(port: number): boolean {
   try {
-    // Try to check with lsof first (faster)
-    const result = execSync(`lsof -i :${port} 2>/dev/null || true`, { encoding: 'utf-8' });
+    // Use ss (more widely available than lsof)
+    const result = execSync(`ss -tlnH sport = :${port} 2>/dev/null || true`, { encoding: 'utf-8' });
     return result.trim() === '';
   } catch {
     return true; // Assume available if check fails
@@ -181,6 +222,7 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
         if (inst && inst.status === 'starting') {
           inst.status = 'running';
           instances.set(projectId, inst);
+          saveState();
         }
       }
     });
@@ -195,6 +237,7 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
         if (inst && inst.status === 'starting') {
           inst.status = 'running';
           instances.set(projectId, inst);
+          saveState();
         }
       }
     });
@@ -249,6 +292,64 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
   }
 }
 
+// Kill all processes on a specific port
+function killProcessesOnPort(port: number): boolean {
+  try {
+    // Get PIDs using ss and parse output
+    // ss output format: LISTEN 0 511 0.0.0.0:4000 0.0.0.0:* users:(("next-server",pid=12345,fd=22))
+    const result = execSync(`ss -tlnp sport = :${port} 2>/dev/null || true`, { encoding: 'utf-8' });
+
+    // Extract PIDs from the output using regex
+    const pidMatches = result.match(/pid=(\d+)/g);
+    if (!pidMatches || pidMatches.length === 0) {
+      // Try fuser as fallback
+      try {
+        const fuserResult = execSync(`fuser ${port}/tcp 2>/dev/null || true`, { encoding: 'utf-8' });
+        const fuserPids = fuserResult.trim().split(/\s+/).filter(Boolean);
+        if (fuserPids.length === 0) {
+          return true; // No processes to kill
+        }
+        for (const pid of fuserPids) {
+          try {
+            process.kill(parseInt(pid, 10), 'SIGTERM');
+            console.log(`[Instance] Sent SIGTERM to PID ${pid}`);
+          } catch {
+            // Process might already be dead
+          }
+        }
+      } catch {
+        return true; // No processes found
+      }
+    } else {
+      const pids = pidMatches.map(m => m.replace('pid=', ''));
+      console.log(`[Instance] Found PIDs on port ${port}:`, pids);
+
+      for (const pid of pids) {
+        try {
+          process.kill(parseInt(pid, 10), 'SIGTERM');
+          console.log(`[Instance] Sent SIGTERM to PID ${pid}`);
+        } catch (err) {
+          console.log(`[Instance] SIGTERM failed for PID ${pid}, trying SIGKILL`);
+          try {
+            process.kill(parseInt(pid, 10), 'SIGKILL');
+          } catch {
+            // Process might already be dead
+          }
+        }
+      }
+    }
+
+    // Give processes a moment to die
+    execSync('sleep 0.5');
+
+    // Verify port is now free
+    return isPortAvailable(port);
+  } catch (err) {
+    console.error('[Instance] Failed to kill processes on port:', err);
+    return false;
+  }
+}
+
 export function stopProject(projectId: string): ProjectInstance | null {
   const instance = instances.get(projectId);
   const child = processes.get(projectId);
@@ -257,7 +358,23 @@ export function stopProject(projectId: string): ProjectInstance | null {
     return null;
   }
 
-  console.log(`[Instance] Stopping project ${projectId}, pid: ${instance.pid}`);
+  console.log(`[Instance] Stopping project ${projectId}, pid: ${instance.pid}, status: ${instance.status}`);
+
+  // For orphaned instances, we need to kill by port since we don't have the process handle
+  if (instance.status === 'orphaned') {
+    const killed = killProcessesOnPort(instance.port);
+    if (killed) {
+      releasePort(instance.port);
+      instance.status = 'stopped';
+      instances.set(projectId, instance);
+      saveState();
+      return instance;
+    } else {
+      instance.error = 'Failed to kill orphaned process';
+      instances.set(projectId, instance);
+      return instance;
+    }
+  }
 
   if (child && child.pid) {
     try {
@@ -283,12 +400,61 @@ export function stopProject(projectId: string): ProjectInstance | null {
   releasePort(instance.port);
   instance.status = 'stopped';
   instances.set(projectId, instance);
+  saveState();
 
   return instance;
 }
 
+// Check for orphaned processes on common ports and return info
+export function detectOrphanedProcess(projectId: string, projectPath: string): ProjectInstance | null {
+  // Scan ports in our range to find anything running
+  for (let port = BASE_PORT; port < BASE_PORT + PORT_INCREMENT * 20; port += PORT_INCREMENT) {
+    if (!isPortAvailable(port)) {
+      // Found something running, create orphaned instance
+      const instance: ProjectInstance = {
+        projectId,
+        projectPath,
+        port,
+        pid: 0,
+        status: 'orphaned',
+        startedAt: new Date().toISOString(),
+      };
+      instances.set(projectId, instance);
+      usedPorts.add(port);
+      return instance;
+    }
+  }
+  return null;
+}
+
 export function getProjectInstance(projectId: string): ProjectInstance | null {
-  return instances.get(projectId) || null;
+  const instance = instances.get(projectId);
+
+  // If we have an instance, verify it's still accurate
+  if (instance) {
+    if (instance.status === 'running' || instance.status === 'orphaned') {
+      // Check if port is still in use
+      if (isPortAvailable(instance.port)) {
+        // Process died, update status
+        instance.status = 'stopped';
+        instances.set(projectId, instance);
+        releasePort(instance.port);
+        saveState();
+      }
+    }
+    return instance;
+  }
+
+  return null;
+}
+
+// Get instance with auto-detection of orphans
+export function getOrDetectInstance(projectId: string, projectPath: string): ProjectInstance | null {
+  const instance = getProjectInstance(projectId);
+  if (instance) return instance;
+
+  // No tracked instance, check if there's an orphaned process
+  return detectOrphanedProcess(projectId, projectPath);
 }
 
 export function getAllInstances(): ProjectInstance[] {

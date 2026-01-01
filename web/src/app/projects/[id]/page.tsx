@@ -119,6 +119,9 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           {instance?.status === 'running' && (
             <span className="ml-2 w-2 h-2 rounded-full bg-green-400 inline-block animate-pulse" />
           )}
+          {instance?.status === 'orphaned' && (
+            <span className="ml-2 w-2 h-2 rounded-full bg-yellow-400 inline-block" />
+          )}
         </button>
       </div>
 
@@ -561,6 +564,7 @@ function PreviewTab({
 }) {
   const isRunning = instance?.status === 'running';
   const isStarting = instance?.status === 'starting';
+  const isOrphaned = instance?.status === 'orphaned';
 
   // Custom base URL from localStorage
   const [customBaseUrl, setCustomBaseUrl] = useState(() => {
@@ -582,15 +586,16 @@ function PreviewTab({
     }
   };
 
-  // Build the preview URL
-  const localUrl = isRunning ? `http://localhost:${instance.port}` : null;
-  const previewUrl = isRunning
+  // Build the preview URL (works for both running and orphaned)
+  const hasActiveServer = isRunning || isOrphaned;
+  const localUrl = hasActiveServer ? `http://localhost:${instance!.port}` : null;
+  const previewUrl = hasActiveServer
     ? customBaseUrl
-      ? `${customBaseUrl.replace(/\/$/, '')}:${instance.port}`
+      ? `${customBaseUrl.replace(/\/$/, '')}:${instance!.port}`
       : localUrl
     : null;
 
-  if (!isRunning && !isStarting) {
+  if (!hasActiveServer && !isStarting) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -647,11 +652,30 @@ function PreviewTab({
 
   return (
     <div className="space-y-4">
+      {/* Orphaned warning banner */}
+      {isOrphaned && (
+        <div className="flex items-center gap-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm">
+          <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0" />
+          <div className="flex-1">
+            <span className="text-yellow-400 font-medium">Orphaned process detected</span>
+            <span className="text-muted-foreground ml-2">
+              A server from a previous session is still running on port {instance!.port}.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Controls row - stacks on mobile */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 text-sm min-w-0">
-          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
-          <span className="text-muted-foreground flex-shrink-0">Port {instance.port}</span>
+          <span className={cn(
+            "w-2 h-2 rounded-full flex-shrink-0",
+            isOrphaned ? "bg-yellow-400" : "bg-green-400 animate-pulse"
+          )} />
+          <span className="text-muted-foreground flex-shrink-0">
+            Port {instance!.port}
+            {isOrphaned && <span className="text-yellow-400 ml-1">(orphaned)</span>}
+          </span>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -680,8 +704,22 @@ function PreviewTab({
             className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-destructive text-destructive-foreground rounded hover:bg-destructive/90 disabled:opacity-50"
           >
             <Square className="w-3 h-3" />
-            Stop
+            {isOrphaned ? 'Kill' : 'Stop'}
           </button>
+          {isOrphaned && (
+            <button
+              onClick={() => {
+                stopInstance.mutate(projectId);
+                // Start after a short delay to let the kill complete
+                setTimeout(() => startInstance.mutate(projectId), 1000);
+              }}
+              disabled={stopInstance.isPending || startInstance.isPending}
+              className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+            >
+              <Play className="w-3 h-3" />
+              Restart
+            </button>
+          )}
         </div>
       </div>
 

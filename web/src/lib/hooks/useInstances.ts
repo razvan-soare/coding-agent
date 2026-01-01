@@ -5,7 +5,7 @@ export interface ProjectInstance {
   projectPath: string;
   port: number;
   pid: number;
-  status: 'starting' | 'running' | 'stopped' | 'error';
+  status: 'starting' | 'running' | 'stopped' | 'error' | 'orphaned';
   startedAt: string;
   error?: string;
 }

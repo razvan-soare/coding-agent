@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getProject } from '@/lib/db';
-import { startProject, stopProject, getProjectInstance } from '@/lib/instances';
+import { startProject, stopProject, getOrDetectInstance } from '@/lib/instances';
 
 // GET - Get instance status
 export async function GET(
@@ -9,7 +9,17 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const instance = getProjectInstance(id);
+    const project = getProject(id);
+
+    if (!project) {
+      return NextResponse.json(
+        { error: 'Project not found' },
+        { status: 404 }
+      );
+    }
+
+    // Use getOrDetectInstance to auto-detect orphaned processes
+    const instance = getOrDetectInstance(id, project.path);
 
     return NextResponse.json({
       instance: instance || null,
