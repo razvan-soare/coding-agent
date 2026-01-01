@@ -10,7 +10,7 @@ const scheduledJobs = new Map<string, ScheduledTask>();
 const runningProcesses = new Map<string, { pid: number; startedAt: Date }>();
 
 // Path to the CLI
-const CLI_PATH = resolve(process.cwd(), '../dist/cli.js');
+const CLI_PATH = resolve(process.cwd(), '../dist/index.js');
 
 /**
  * Start a cron job for a project
