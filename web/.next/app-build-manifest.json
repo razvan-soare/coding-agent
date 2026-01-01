@@ -30,6 +30,16 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/runs/[id]/logs/route.js"
+    ],
+    "/api/runs/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/runs/route.js"
+    ],
+    "/api/projects/[id]/instance/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/projects/[id]/instance/route.js"
     ]
   }
 }

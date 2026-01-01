@@ -85,6 +85,21 @@ export function initializeSchema(): void {
       FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS knowledge (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'pattern',
+      tags TEXT NOT NULL DEFAULT '[]',
+      file_path TEXT,
+      content TEXT NOT NULL,
+      importance INTEGER NOT NULL DEFAULT 5,
+      source_task_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_used_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (source_task_id) REFERENCES tasks(id) ON DELETE SET NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones(project_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_milestone ON tasks(milestone_id);
@@ -92,6 +107,9 @@ export function initializeSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);
     CREATE INDEX IF NOT EXISTS idx_runs_task ON runs(task_id);
     CREATE INDEX IF NOT EXISTS idx_logs_run ON logs(run_id);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_project ON knowledge(project_id);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge(category);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_importance ON knowledge(importance DESC);
   `);
 
   // Run migrations for existing databases

@@ -6,6 +6,7 @@ import { useProject } from '@/lib/hooks/useProjects';
 import { useCreateTask, useDeleteTask } from '@/lib/hooks/useTasks';
 import { useRuns, useLogs } from '@/lib/hooks/useRuns';
 import { useInstance, useStartInstance, useStopInstance } from '@/lib/hooks/useInstances';
+import { useKnowledge, useCreateKnowledge, useUpdateKnowledge, useDeleteKnowledge, type KnowledgeCategory } from '@/lib/hooks/useKnowledge';
 import { formatDate, formatDuration, cn } from '@/lib/utils';
 import {
   ArrowLeft,
@@ -22,9 +23,15 @@ import {
   Square,
   ExternalLink,
   Loader2,
+  BookOpen,
+  Lightbulb,
+  FileText,
+  Edit2,
+  X,
+  Save,
 } from 'lucide-react';
 
-type Tab = 'tasks' | 'runs' | 'preview';
+type Tab = 'tasks' | 'runs' | 'knowledge' | 'preview';
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -107,6 +114,18 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           Runs ({project.runs.length})
         </button>
         <button
+          onClick={() => setActiveTab('knowledge')}
+          className={cn(
+            'pb-3 px-1 text-sm font-medium transition-colors',
+            activeTab === 'knowledge'
+              ? 'text-primary border-b-2 border-primary'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <BookOpen className="w-4 h-4 inline-block mr-1" />
+          Knowledge
+        </button>
+        <button
           onClick={() => setActiveTab('preview')}
           className={cn(
             'pb-3 px-1 text-sm font-medium transition-colors',
@@ -144,6 +163,10 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           selectedRunId={selectedRunId}
           setSelectedRunId={setSelectedRunId}
         />
+      )}
+
+      {activeTab === 'knowledge' && (
+        <KnowledgeTab projectId={id} />
       )}
 
       {activeTab === 'preview' && (
@@ -750,6 +773,301 @@ function PreviewTab({
           title="Project Preview"
         />
       </div>
+    </div>
+  );
+}
+
+function KnowledgeTab({ projectId }: { projectId: string }) {
+  const { data: knowledge, isLoading } = useKnowledge(projectId);
+  const createKnowledge = useCreateKnowledge();
+  const updateKnowledge = useUpdateKnowledge();
+  const deleteKnowledge = useDeleteKnowledge();
+
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    category: 'pattern' as KnowledgeCategory,
+    tags: '',
+    content: '',
+    file_path: '',
+    importance: 5,
+  });
+
+  const categoryConfig: Record<KnowledgeCategory, { icon: typeof Lightbulb; label: string; color: string; bg: string }> = {
+    pattern: { icon: FileText, label: 'Pattern', color: 'text-blue-400', bg: 'bg-blue-400/10' },
+    gotcha: { icon: AlertCircle, label: 'Gotcha', color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
+    decision: { icon: CheckCircle, label: 'Decision', color: 'text-green-400', bg: 'bg-green-400/10' },
+    preference: { icon: Lightbulb, label: 'Preference', color: 'text-purple-400', bg: 'bg-purple-400/10' },
+    file_note: { icon: FileText, label: 'File Note', color: 'text-cyan-400', bg: 'bg-cyan-400/10' },
+  };
+
+  const resetForm = () => {
+    setFormData({
+      category: 'pattern',
+      tags: '',
+      content: '',
+      file_path: '',
+      importance: 5,
+    });
+    setEditingId(null);
+    setShowForm(false);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.content.trim()) return;
+
+    const tags = formData.tags
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    if (editingId) {
+      await updateKnowledge.mutateAsync({
+        id: editingId,
+        category: formData.category,
+        tags,
+        content: formData.content,
+        file_path: formData.file_path || null,
+        importance: formData.importance,
+      });
+    } else {
+      await createKnowledge.mutateAsync({
+        project_id: projectId,
+        category: formData.category,
+        tags,
+        content: formData.content,
+        file_path: formData.file_path || undefined,
+        importance: formData.importance,
+      });
+    }
+
+    resetForm();
+  };
+
+  const startEdit = (entry: NonNullable<typeof knowledge>[0]) => {
+    const tags = JSON.parse(entry.tags) as string[];
+    setFormData({
+      category: entry.category as KnowledgeCategory,
+      tags: tags.join(', '),
+      content: entry.content,
+      file_path: entry.file_path || '',
+      importance: entry.importance,
+    });
+    setEditingId(entry.id);
+    setShowForm(true);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-24 bg-card border border-border rounded-lg animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <h2 className="text-lg font-semibold">Project Knowledge Base</h2>
+          <p className="text-sm text-muted-foreground">
+            Learnings and patterns that help agents understand this project
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            resetForm();
+            setShowForm(true);
+          }}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          Add Knowledge
+        </button>
+      </div>
+
+      {/* Form */}
+      {showForm && (
+        <form onSubmit={handleSubmit} className="mb-6 p-4 bg-card rounded-lg border border-border">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-medium">{editingId ? 'Edit Entry' : 'Add New Entry'}</h3>
+            <button type="button" onClick={resetForm} className="text-muted-foreground hover:text-foreground">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Category</label>
+              <select
+                value={formData.category}
+                onChange={(e) => setFormData({ ...formData, category: e.target.value as KnowledgeCategory })}
+                className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="pattern">Pattern - Code patterns & examples</option>
+                <option value="gotcha">Gotcha - Common pitfalls to avoid</option>
+                <option value="decision">Decision - Architectural decisions</option>
+                <option value="preference">Preference - User preferences</option>
+                <option value="file_note">File Note - Notes about specific files</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Importance (1-10)
+              </label>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                value={formData.importance}
+                onChange={(e) => setFormData({ ...formData, importance: parseInt(e.target.value) })}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Low</span>
+                <span className="font-medium">{formData.importance}</span>
+                <span>Critical</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-1">Content</label>
+            <textarea
+              value={formData.content}
+              onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+              rows={3}
+              className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              placeholder="Describe the pattern, gotcha, or decision..."
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Tags (comma-separated)</label>
+              <input
+                type="text"
+                value={formData.tags}
+                onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
+                className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="auth, api, database"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Related File (optional)</label>
+              <input
+                type="text"
+                value={formData.file_path}
+                onChange={(e) => setFormData({ ...formData, file_path: e.target.value })}
+                className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="src/lib/auth.ts"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={createKnowledge.isPending || updateKnowledge.isPending}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50"
+            >
+              <Save className="w-4 h-4" />
+              {editingId ? 'Update' : 'Save'}
+            </button>
+            <button
+              type="button"
+              onClick={resetForm}
+              className="px-4 py-2 text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Knowledge List */}
+      {!knowledge || knowledge.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-50" />
+          <p className="mb-2">No knowledge entries yet</p>
+          <p className="text-sm">
+            Add patterns, gotchas, and decisions to help agents understand this project better.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {knowledge.map((entry) => {
+            const config = categoryConfig[entry.category as KnowledgeCategory];
+            const Icon = config?.icon || FileText;
+            const tags = JSON.parse(entry.tags) as string[];
+
+            return (
+              <div
+                key={entry.id}
+                className="bg-card rounded-lg border border-border p-4 hover:border-muted-foreground/50 transition-colors"
+              >
+                <div className="flex items-start gap-3">
+                  <div className={cn('p-2 rounded', config?.bg || 'bg-muted')}>
+                    <Icon className={cn('w-4 h-4', config?.color || 'text-muted-foreground')} />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className={cn('text-xs font-medium', config?.color || 'text-muted-foreground')}>
+                        {config?.label || entry.category}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        Importance: {entry.importance}/10
+                      </span>
+                      {entry.file_path && (
+                        <span className="text-xs text-cyan-400 font-mono">
+                          {entry.file_path}
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-sm mb-2">{entry.content}</p>
+
+                    {tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {tags.map((tag, i) => (
+                          <span
+                            key={i}
+                            className="px-2 py-0.5 text-xs bg-muted rounded text-muted-foreground"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => startEdit(entry)}
+                      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => deleteKnowledge.mutate({ id: entry.id, projectId })}
+                      className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

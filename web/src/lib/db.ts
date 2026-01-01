@@ -73,6 +73,21 @@ export interface Milestone {
   created_at: string;
 }
 
+export type KnowledgeCategory = 'pattern' | 'gotcha' | 'decision' | 'preference' | 'file_note';
+
+export interface Knowledge {
+  id: string;
+  project_id: string;
+  category: KnowledgeCategory;
+  tags: string;  // JSON array stored as string
+  file_path: string | null;
+  content: string;
+  importance: number;
+  source_task_id: string | null;
+  created_at: string;
+  last_used_at: string;
+}
+
 // Project operations
 export function getAllProjects(): Project[] {
   const db = getDb();
@@ -186,4 +201,99 @@ export function getProjectStats(projectId: string): {
   ).get(projectId) as Run | null;
 
   return stats;
+}
+
+// Knowledge operations
+export function getKnowledgeByProject(projectId: string): Knowledge[] {
+  const db = getDb();
+  return db.prepare(
+    'SELECT * FROM knowledge WHERE project_id = ? ORDER BY importance DESC, last_used_at DESC'
+  ).all(projectId) as Knowledge[];
+}
+
+export function getKnowledge(id: string): Knowledge | null {
+  const db = getDb();
+  return db.prepare('SELECT * FROM knowledge WHERE id = ?').get(id) as Knowledge | null;
+}
+
+export function createKnowledge(data: {
+  project_id: string;
+  category: KnowledgeCategory;
+  tags: string[];
+  content: string;
+  file_path?: string;
+  importance?: number;
+}): Knowledge {
+  const db = getDb();
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO knowledge (id, project_id, category, tags, file_path, content, importance, created_at, last_used_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    data.project_id,
+    data.category,
+    JSON.stringify(data.tags),
+    data.file_path ?? null,
+    data.content,
+    data.importance ?? 5,
+    now,
+    now
+  );
+
+  return getKnowledge(id)!;
+}
+
+export function updateKnowledge(
+  id: string,
+  data: Partial<{
+    category: KnowledgeCategory;
+    tags: string[];
+    file_path: string | null;
+    content: string;
+    importance: number;
+  }>
+): Knowledge | null {
+  const db = getDb();
+  const existing = getKnowledge(id);
+  if (!existing) return null;
+
+  const updates: string[] = [];
+  const params: (string | number | null)[] = [];
+
+  if (data.category !== undefined) {
+    updates.push('category = ?');
+    params.push(data.category);
+  }
+  if (data.tags !== undefined) {
+    updates.push('tags = ?');
+    params.push(JSON.stringify(data.tags));
+  }
+  if (data.file_path !== undefined) {
+    updates.push('file_path = ?');
+    params.push(data.file_path);
+  }
+  if (data.content !== undefined) {
+    updates.push('content = ?');
+    params.push(data.content);
+  }
+  if (data.importance !== undefined) {
+    updates.push('importance = ?');
+    params.push(data.importance);
+  }
+
+  if (updates.length === 0) return existing;
+
+  params.push(id);
+  db.prepare(`UPDATE knowledge SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+  return getKnowledge(id);
+}
+
+export function deleteKnowledge(id: string): boolean {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM knowledge WHERE id = ?').run(id);
+  return result.changes > 0;
 }

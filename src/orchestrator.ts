@@ -19,6 +19,7 @@ import {
 import { runPlanner, runPlannerRecovery, type FailedTaskContext } from './agents/planner.js';
 import { runDeveloper, type RetryContext } from './agents/developer.js';
 import { runReviewer, formatReviewFeedback } from './agents/reviewer.js';
+import { extractKnowledge } from './agents/knowledge-extractor.js';
 import { getGitStatus, stageAllChanges, commit, push, hasRemote, resetToLastCommit } from './git/operations.js';
 
 const MAX_RETRIES = 3;
@@ -352,6 +353,22 @@ export async function runOrchestrator(projectId: string): Promise<OrchestratorRe
           console.warn('Failed to push:', error);
         }
       }
+    }
+
+    // Extract knowledge from completed task (non-blocking)
+    console.log('\nExtracting knowledge from completed task...');
+    try {
+      const extractionResult = await extractKnowledge({
+        runId: run.id,
+        project,
+        task,
+      });
+      if (extractionResult.extractedCount > 0) {
+        console.log(`Extracted ${extractionResult.extractedCount} knowledge entries`);
+      }
+    } catch (error) {
+      // Knowledge extraction is optional, don't fail the run
+      console.warn('Knowledge extraction failed:', error);
     }
 
     // Mark task as completed

@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { runAgent, type AgentResult } from './base-agent.js';
-import { getCompletedTasks, getCurrentMilestone, type Project, type Milestone, type Task } from '../db/index.js';
+import { getCompletedTasks, getCurrentMilestone, getEssentialKnowledge, getRelevantKnowledge, formatKnowledgeForPrompt, type Project, type Milestone, type Task } from '../db/index.js';
 
 export interface PlannerOutput {
   title: string;
@@ -15,7 +15,8 @@ export interface PlannerResult extends AgentResult {
 function buildPlannerPrompt(
   overviewContent: string,
   milestone: Milestone | null,
-  completedTasks: Task[]
+  completedTasks: Task[],
+  knowledgeContext: string
 ): string {
   const completedTasksList = completedTasks.length > 0
     ? completedTasks.map((t, i) => `${i + 1}. ${t.title}`).join('\n')
@@ -24,6 +25,10 @@ function buildPlannerPrompt(
   const milestoneSection = milestone
     ? `[Current Milestone]\n${milestone.title}: ${milestone.description || 'No description'}`
     : '[Current Milestone]\nNo specific milestone set - work on core features';
+
+  const knowledgeSection = knowledgeContext
+    ? `[Project Knowledge]\nThese are important patterns, decisions, and gotchas for this project:\n${knowledgeContext}\n`
+    : '';
 
   return `You are a technical project planner. Given the project overview and completed work, generate the next task that needs implementation.
 
@@ -34,7 +39,7 @@ ${milestoneSection}
 [Completed Tasks]
 ${completedTasksList}
 
-[Instructions]
+${knowledgeSection}[Instructions]
 1. Analyze what has been built so far
 2. Determine the next logical task to implement
 3. Generate ONE task with a clear description
@@ -165,7 +170,23 @@ export async function runPlanner(options: {
   const milestone = getCurrentMilestone(project.id);
   const completedTasks = getCompletedTasks(project.id);
 
-  const prompt = buildPlannerPrompt(overviewContent, milestone, completedTasks);
+  // Get relevant knowledge for planning
+  const essentialKnowledge = getEssentialKnowledge(project.id, 5);
+  const relevantKnowledge = getRelevantKnowledge(project.id, {
+    categories: ['decision', 'preference', 'gotcha'],
+    limit: 5,
+  });
+
+  // Combine and dedupe knowledge
+  const allKnowledge = [...essentialKnowledge];
+  for (const k of relevantKnowledge) {
+    if (!allKnowledge.some(e => e.id === k.id)) {
+      allKnowledge.push(k);
+    }
+  }
+  const knowledgeContext = formatKnowledgeForPrompt(allKnowledge.slice(0, 8));
+
+  const prompt = buildPlannerPrompt(overviewContent, milestone, completedTasks, knowledgeContext);
 
   const result = await runAgent({
     runId,

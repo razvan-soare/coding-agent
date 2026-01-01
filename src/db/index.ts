@@ -6,3 +6,4 @@ export * from './milestones.js';
 export * from './tasks.js';
 export * from './runs.js';
 export * from './logs.js';
+export * from './knowledge.js';

@@ -63,3 +63,18 @@ export interface Log {
   metadata: string | null;
   timestamp: string;
 }
+
+export type KnowledgeCategory = 'pattern' | 'gotcha' | 'decision' | 'preference' | 'file_note';
+
+export interface Knowledge {
+  id: string;
+  project_id: string;
+  category: KnowledgeCategory;
+  tags: string;  // JSON array stored as string
+  file_path: string | null;
+  content: string;
+  importance: number;
+  source_task_id: string | null;
+  created_at: string;
+  last_used_at: string;
+}
