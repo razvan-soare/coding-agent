@@ -1,6 +1,7 @@
 import cron, { ScheduledTask } from 'node-cron';
 import { spawn } from 'child_process';
 import { resolve } from 'path';
+import { parseExpression } from 'cron-parser';
 import { getAllProjects, getProject } from './db';
 
 // Map of project ID to scheduled task
@@ -62,25 +63,13 @@ export function isJobScheduled(projectId: string): boolean {
 export function getNextRunTime(schedule: string): Date | null {
   if (!cron.validate(schedule)) return null;
 
-  // Parse the cron expression to calculate next run
-  // This is a simplified calculation - for accurate times, use a library like cron-parser
-  const parts = schedule.split(' ');
-  const now = new Date();
-
-  // For "0 */3 * * *" (every 3 hours), calculate next run
-  if (parts[1]?.startsWith('*/')) {
-    const interval = parseInt(parts[1].slice(2), 10);
-    const currentHour = now.getUTCHours();
-    const nextHour = Math.ceil((currentHour + 1) / interval) * interval;
-    const nextRun = new Date(now);
-    nextRun.setUTCHours(nextHour, 0, 0, 0);
-    if (nextRun <= now) {
-      nextRun.setUTCHours(nextRun.getUTCHours() + interval);
-    }
-    return nextRun;
+  try {
+    const interval = parseExpression(schedule);
+    return interval.next().toDate();
+  } catch (error) {
+    console.error('[Cron] Error parsing cron expression:', error);
+    return null;
   }
-
-  return null;
 }
 
 /**

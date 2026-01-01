@@ -104,20 +104,46 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
             <p className="text-muted-foreground text-xs sm:text-sm truncate">{project.path}</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            {/* Cron Toggle */}
-            <button
-              onClick={() => toggleCron.mutate({ projectId: id, enabled: project.cron_enabled !== 1 })}
-              disabled={toggleCron.isPending}
-              className={cn(
-                'inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                project.cron_enabled === 1
-                  ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-              )}
-            >
-              <Timer className="w-4 h-4" />
-              {toggleCron.isPending ? 'Updating...' : project.cron_enabled === 1 ? 'Cron On' : 'Cron Off'}
-            </button>
+            {/* Cron Toggle with Schedule */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => toggleCron.mutate({ projectId: id, enabled: project.cron_enabled !== 1 })}
+                disabled={toggleCron.isPending}
+                className={cn(
+                  'inline-flex items-center justify-center gap-2 px-3 py-2 rounded-l-lg text-sm font-medium transition-colors',
+                  project.cron_enabled === 1
+                    ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                )}
+              >
+                <Timer className="w-4 h-4" />
+                {toggleCron.isPending ? '...' : project.cron_enabled === 1 ? 'On' : 'Off'}
+              </button>
+              <select
+                value={project.cron_schedule}
+                onChange={(e) => {
+                  fetch(`/api/projects/${id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cron_schedule: e.target.value }),
+                  }).then(() => window.location.reload());
+                }}
+                className={cn(
+                  'px-2 py-2 rounded-r-lg text-xs font-medium border-l border-border/50 appearance-none cursor-pointer',
+                  project.cron_enabled === 1
+                    ? 'bg-green-500/20 text-green-400'
+                    : 'bg-muted text-muted-foreground'
+                )}
+              >
+                <option value="*/5 * * * *">5min</option>
+                <option value="*/15 * * * *">15min</option>
+                <option value="*/30 * * * *">30min</option>
+                <option value="0 * * * *">1h</option>
+                <option value="0 */3 * * *">3h</option>
+                <option value="0 */6 * * *">6h</option>
+                <option value="0 */12 * * *">12h</option>
+              </select>
+            </div>
             {/* Run Agent Button */}
             <button
               onClick={() => triggerRun.mutate(id)}
