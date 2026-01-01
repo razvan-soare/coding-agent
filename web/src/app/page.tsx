@@ -8,14 +8,8 @@ import { Folder, CheckCircle, Clock, AlertCircle, XCircle, Play } from 'lucide-r
 export default function Dashboard() {
   const { data: projects, isLoading, error } = useProjects();
 
-  if (isLoading) {
-    return (
-      <div className="p-8">
-        <h1 className="text-2xl font-bold mb-8">Coding Agent Dashboard</h1>
-        <div className="text-muted-foreground">Loading projects...</div>
-      </div>
-    );
-  }
+  // Show skeleton while loading, but don't block if we have cached data
+  const showSkeleton = isLoading && !projects;
 
   if (error) {
     return (
@@ -30,7 +24,21 @@ export default function Dashboard() {
     <div className="p-8">
       <h1 className="text-2xl font-bold mb-8">Coding Agent Dashboard</h1>
 
-      {projects?.length === 0 ? (
+      {showSkeleton ? (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {[1, 2].map((i) => (
+            <div key={i} className="p-6 bg-card rounded-lg border border-border animate-pulse">
+              <div className="h-6 bg-muted rounded w-3/4 mb-4" />
+              <div className="h-4 bg-muted rounded w-1/2 mb-4" />
+              <div className="grid grid-cols-4 gap-2">
+                {[1, 2, 3, 4].map((j) => (
+                  <div key={j} className="h-8 bg-muted rounded" />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : projects?.length === 0 ? (
         <div className="text-muted-foreground">
           No projects found. Use the CLI to initialize a project:
           <pre className="mt-2 p-4 bg-card rounded-lg text-sm">

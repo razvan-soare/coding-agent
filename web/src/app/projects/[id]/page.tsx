@@ -30,10 +30,24 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
-  if (isLoading) {
+  // Show skeleton only on first load, not on refetches
+  if (isLoading && !project) {
     return (
       <div className="p-8">
-        <div className="text-muted-foreground">Loading project...</div>
+        <div className="mb-8">
+          <div className="h-4 w-32 bg-muted rounded animate-pulse mb-4" />
+          <div className="h-8 w-64 bg-muted rounded animate-pulse mb-2" />
+          <div className="h-4 w-48 bg-muted rounded animate-pulse" />
+        </div>
+        <div className="flex gap-4 mb-6 border-b border-border pb-3">
+          <div className="h-6 w-20 bg-muted rounded animate-pulse" />
+          <div className="h-6 w-20 bg-muted rounded animate-pulse" />
+        </div>
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-20 bg-card border border-border rounded-lg animate-pulse" />
+          ))}
+        </div>
       </div>
     );
   }
