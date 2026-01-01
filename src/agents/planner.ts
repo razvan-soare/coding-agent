@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { runAgent, type AgentResult } from './base-agent.js';
-import { getCompletedTasks, getCurrentMilestone, getEssentialKnowledge, getRelevantKnowledge, formatKnowledgeForPrompt, type Project, type Milestone, type Task } from '../db/index.js';
+import { getCompletedTasks, getFailedTasks, getCurrentMilestone, getEssentialKnowledge, getRelevantKnowledge, formatKnowledgeForPrompt, type Project, type Milestone, type Task } from '../db/index.js';
 
 export interface PlannerOutput {
   title: string;
@@ -12,18 +12,54 @@ export interface PlannerResult extends AgentResult {
   milestoneComplete: boolean;
 }
 
+function formatFailedTask(task: Task, index: number): string {
+  let result = `${index + 1}. [FAILED] ${task.title}`;
+
+  // Parse and include failure comments
+  if (task.comments) {
+    try {
+      const comments = JSON.parse(task.comments) as string[];
+      if (comments.length > 0) {
+        result += `\n   Failure notes: ${comments.join('; ')}`;
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  if (task.retry_count > 0) {
+    result += `\n   Attempts: ${task.retry_count}`;
+  }
+
+  return result;
+}
+
 function buildPlannerPrompt(
   overviewContent: string,
   milestone: Milestone | null,
   completedTasks: Task[],
+  failedTasks: Task[],
   knowledgeContext: string
 ): string {
   const completedTasksList = completedTasks.length > 0
-    ? completedTasks.map((t, i) => `${i + 1}. ${t.title}`).join('\n')
+    ? completedTasks.map((t, i) => `${i + 1}. [DONE] ${t.title}`).join('\n')
     : 'None yet';
 
+  const failedTasksList = failedTasks.length > 0
+    ? failedTasks.map((t, i) => formatFailedTask(t, i)).join('\n')
+    : '';
+
+  const taskHistory = failedTasksList
+    ? `${completedTasksList}\n\n[Failed Tasks - Need Different Approach]\n${failedTasksList}`
+    : completedTasksList;
+
   const milestoneSection = milestone
-    ? `[Current Milestone]\n${milestone.title}: ${milestone.description || 'No description'}`
+    ? `[Current Milestone]
+Title: ${milestone.title}
+Requirements:
+${milestone.description || 'No specific requirements listed'}
+
+IMPORTANT: The milestone is ONLY complete when ALL requirements listed above have been implemented and verified through completed tasks. Failed tasks do NOT count as completed.`
     : '[Current Milestone]\nNo specific milestone set - work on core features';
 
   const knowledgeSection = knowledgeContext
@@ -36,13 +72,24 @@ ${overviewContent}
 
 ${milestoneSection}
 
-[Completed Tasks]
-${completedTasksList}
+[Task History]
+${taskHistory}
 
 ${knowledgeSection}[Instructions]
-1. Analyze what has been built so far
-2. Determine the next logical task to implement
-3. Generate ONE task with a clear description
+1. Review the current milestone requirements carefully
+2. Compare each requirement against the completed tasks
+3. If ANY requirement is not covered by a completed task, generate a task for it
+4. For failed tasks: READ THE FAILURE NOTES and create a NEW task with a DIFFERENT approach
+   - Do NOT repeat the same task title or description
+   - Simplify the scope or break it into smaller pieces
+   - Try alternative tools, libraries, or methods
+   - Address the specific issues mentioned in failure notes
+
+CRITICAL MILESTONE RULES:
+- A milestone is ONLY complete when EVERY requirement in the milestone description has a corresponding COMPLETED task
+- Failed tasks do NOT satisfy requirements - they need to be retried
+- If any requirement is missing or only has a failed task, the milestone is NOT complete
+- When in doubt, generate another task - it's better to over-deliver than under-deliver
 
 IMPORTANT: Focus on WHAT needs to be done, not HOW to implement it:
 - Describe the feature, behavior, or outcome expected
@@ -62,9 +109,10 @@ Output ONLY a JSON object (no markdown, no explanation):
   "description": "Clear description of WHAT should be built, the expected behavior, and any specific requirements. No code."
 }
 
-If the current milestone is complete, output:
+ONLY if you have verified that EVERY requirement in the milestone is satisfied by a completed task, output:
 {
-  "milestone_complete": true
+  "milestone_complete": true,
+  "verification": ["requirement 1 - satisfied by task X", "requirement 2 - satisfied by task Y", ...]
 }
 
 Do not ask questions. Make reasonable assumptions based on the project overview.`;
@@ -166,27 +214,31 @@ export async function runPlanner(options: {
     };
   }
 
-  // Get current milestone and completed tasks
+  // Get current milestone and task history
   const milestone = getCurrentMilestone(project.id);
   const completedTasks = getCompletedTasks(project.id);
+  const failedTasks = getFailedTasks(project.id);
 
-  // Get relevant knowledge for planning
-  const essentialKnowledge = getEssentialKnowledge(project.id, 5);
-  const relevantKnowledge = getRelevantKnowledge(project.id, {
-    categories: ['decision', 'preference', 'gotcha'],
-    limit: 5,
-  });
+  // Get relevant knowledge for planning (only if enabled)
+  let knowledgeContext = '';
+  if (project.use_knowledge) {
+    const essentialKnowledge = getEssentialKnowledge(project.id, 5);
+    const relevantKnowledge = getRelevantKnowledge(project.id, {
+      categories: ['decision', 'preference', 'gotcha'],
+      limit: 5,
+    });
 
-  // Combine and dedupe knowledge
-  const allKnowledge = [...essentialKnowledge];
-  for (const k of relevantKnowledge) {
-    if (!allKnowledge.some(e => e.id === k.id)) {
-      allKnowledge.push(k);
+    // Combine and dedupe knowledge
+    const allKnowledge = [...essentialKnowledge];
+    for (const k of relevantKnowledge) {
+      if (!allKnowledge.some(e => e.id === k.id)) {
+        allKnowledge.push(k);
+      }
     }
+    knowledgeContext = formatKnowledgeForPrompt(allKnowledge.slice(0, 8));
   }
-  const knowledgeContext = formatKnowledgeForPrompt(allKnowledge.slice(0, 8));
 
-  const prompt = buildPlannerPrompt(overviewContent, milestone, completedTasks, knowledgeContext);
+  const prompt = buildPlannerPrompt(overviewContent, milestone, completedTasks, failedTasks, knowledgeContext);
 
   const result = await runAgent({
     runId,

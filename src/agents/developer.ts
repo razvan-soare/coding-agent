@@ -84,24 +84,28 @@ export async function runDeveloper(options: {
 }): Promise<DeveloperResult> {
   const { runId, project, task, retryContext } = options;
 
-  // Extract keywords from task for knowledge retrieval
-  const taskKeywords = task.title.toLowerCase().split(/\s+/).concat(
-    task.description.toLowerCase().split(/\s+/).slice(0, 20)
-  );
+  // Get relevant knowledge for this task (only if enabled)
+  let knowledgeContext = '';
+  if (project.use_knowledge) {
+    // Extract keywords from task for knowledge retrieval
+    const taskKeywords = task.title.toLowerCase().split(/\s+/).concat(
+      task.description.toLowerCase().split(/\s+/).slice(0, 20)
+    );
 
-  // Get relevant knowledge for this task
-  const relevantKnowledge = getRelevantKnowledge(project.id, {
-    keywords: taskKeywords,
-    categories: ['pattern', 'gotcha', 'file_note'],
-    limit: 8,
-  });
+    const relevantKnowledge = getRelevantKnowledge(project.id, {
+      keywords: taskKeywords,
+      categories: ['pattern', 'gotcha', 'file_note'],
+      limit: 8,
+    });
 
-  // Mark knowledge as used (for tracking and decay)
-  for (const k of relevantKnowledge) {
-    markKnowledgeUsed(k.id);
+    // Mark knowledge as used (for tracking and decay)
+    for (const k of relevantKnowledge) {
+      markKnowledgeUsed(k.id);
+    }
+
+    knowledgeContext = formatKnowledgeForPrompt(relevantKnowledge);
   }
 
-  const knowledgeContext = formatKnowledgeForPrompt(relevantKnowledge);
   const prompt = buildDeveloperPrompt(task, knowledgeContext, retryContext);
 
   const result = await runAgent({

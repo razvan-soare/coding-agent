@@ -12,6 +12,10 @@ import {
   updateRunTask,
   updateTaskStatus,
   addTaskComment,
+  getCurrentMilestone,
+  getNextMilestone,
+  updateMilestoneStatus,
+  updateProject,
   type Project,
   type Run,
   type Task,
@@ -55,7 +59,45 @@ async function getOrCreateTask(run: Run, project: Project): Promise<Task | null>
   }
 
   if (plannerResult.milestoneComplete) {
-    console.log('Milestone complete! No more tasks to generate.');
+    // Milestone is complete - advance to next milestone
+    const currentMilestone = getCurrentMilestone(project.id);
+
+    if (currentMilestone) {
+      console.log(`✅ Milestone complete: ${currentMilestone.title}`);
+      updateMilestoneStatus(currentMilestone.id, 'completed');
+
+      // Get next milestone
+      const nextMilestone = getNextMilestone(project.id, currentMilestone.order_index);
+
+      if (nextMilestone) {
+        console.log(`📋 Advancing to next milestone: ${nextMilestone.title}`);
+        updateProject(project.id, { current_milestone_id: nextMilestone.id });
+        updateMilestoneStatus(nextMilestone.id, 'in_progress');
+
+        // Run planner again for the new milestone
+        const nextPlannerResult = await runPlanner({
+          runId: run.id,
+          project: { ...project, current_milestone_id: nextMilestone.id },
+        });
+
+        if (nextPlannerResult.success && nextPlannerResult.task) {
+          task = createTask({
+            project_id: project.id,
+            milestone_id: nextMilestone.id,
+            title: nextPlannerResult.task.title,
+            description: nextPlannerResult.task.description,
+          });
+
+          console.log(`Created task: ${task.title}`);
+          updateRunTask(run.id, task.id);
+          return task;
+        }
+      } else {
+        console.log('🎉 All milestones complete! Project finished.');
+        return null;
+      }
+    }
+
     return null;
   }
 
@@ -65,8 +107,10 @@ async function getOrCreateTask(run: Run, project: Project): Promise<Task | null>
   }
 
   // Create the new task
+  const currentMilestone = getCurrentMilestone(project.id);
   task = createTask({
     project_id: project.id,
+    milestone_id: currentMilestone?.id,
     title: plannerResult.task.title,
     description: plannerResult.task.description,
   });

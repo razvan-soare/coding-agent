@@ -2,7 +2,7 @@
 
 import { useState, use } from 'react';
 import Link from 'next/link';
-import { useProject } from '@/lib/hooks/useProjects';
+import { useProject, useToggleKnowledge } from '@/lib/hooks/useProjects';
 import { useCreateTask, useDeleteTask } from '@/lib/hooks/useTasks';
 import { useRuns, useLogs } from '@/lib/hooks/useRuns';
 import { useInstance, useStartInstance, useStopInstance } from '@/lib/hooks/useInstances';
@@ -29,6 +29,8 @@ import {
   Edit2,
   X,
   Save,
+  ToggleLeft,
+  ToggleRight,
 } from 'lucide-react';
 
 type Tab = 'tasks' | 'runs' | 'knowledge' | 'preview';
@@ -168,7 +170,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       )}
 
       {activeTab === 'knowledge' && (
-        <KnowledgeTab projectId={id} />
+        <KnowledgeTab projectId={id} knowledgeEnabled={project.use_knowledge === 1} />
       )}
 
       {activeTab === 'preview' && (
@@ -779,11 +781,12 @@ function PreviewTab({
   );
 }
 
-function KnowledgeTab({ projectId }: { projectId: string }) {
+function KnowledgeTab({ projectId, knowledgeEnabled }: { projectId: string; knowledgeEnabled: boolean }) {
   const { data: knowledge, isLoading } = useKnowledge(projectId);
   const createKnowledge = useCreateKnowledge();
   const updateKnowledge = useUpdateKnowledge();
   const deleteKnowledge = useDeleteKnowledge();
+  const toggleKnowledge = useToggleKnowledge();
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -872,23 +875,58 @@ function KnowledgeTab({ projectId }: { projectId: string }) {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
-        <div>
-          <h2 className="text-lg font-semibold">Project Knowledge Base</h2>
-          <p className="text-sm text-muted-foreground">
-            Learnings and patterns that help agents understand this project
-          </p>
+      <div className="flex flex-col gap-4 mb-4">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-lg font-semibold">Project Knowledge Base</h2>
+            <p className="text-sm text-muted-foreground">
+              Learnings and patterns that help agents understand this project
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              resetForm();
+              setShowForm(true);
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Knowledge
+          </button>
         </div>
-        <button
-          onClick={() => {
-            resetForm();
-            setShowForm(true);
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Add Knowledge
-        </button>
+
+        {/* Knowledge Toggle */}
+        <div className="flex items-center justify-between p-3 bg-card rounded-lg border border-border">
+          <div className="flex items-center gap-3">
+            {knowledgeEnabled ? (
+              <ToggleRight className="w-5 h-5 text-green-400" />
+            ) : (
+              <ToggleLeft className="w-5 h-5 text-muted-foreground" />
+            )}
+            <div>
+              <span className="text-sm font-medium">
+                Knowledge Injection: {knowledgeEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+              <p className="text-xs text-muted-foreground">
+                {knowledgeEnabled
+                  ? 'Agents will use knowledge entries to inform their work'
+                  : 'Agents will ignore all knowledge entries'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => toggleKnowledge.mutate({ projectId, enabled: !knowledgeEnabled })}
+            disabled={toggleKnowledge.isPending}
+            className={cn(
+              'px-3 py-1.5 text-sm rounded-lg transition-colors',
+              knowledgeEnabled
+                ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80'
+            )}
+          >
+            {toggleKnowledge.isPending ? 'Updating...' : knowledgeEnabled ? 'Disable' : 'Enable'}
+          </button>
+        </div>
       </div>
 
       {/* Form */}

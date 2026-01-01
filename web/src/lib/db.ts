@@ -22,6 +22,7 @@ export interface Project {
   path: string;
   overview_path: string;
   current_milestone_id: string | null;
+  use_knowledge: number; // 1 = enabled, 0 = disabled
   created_at: string;
   updated_at: string;
 }
@@ -97,6 +98,37 @@ export function getAllProjects(): Project[] {
 export function getProject(id: string): Project | null {
   const db = getDb();
   return db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project | null;
+}
+
+export function updateProject(
+  id: string,
+  data: Partial<Pick<Project, 'name' | 'current_milestone_id' | 'use_knowledge'>>
+): Project | null {
+  const db = getDb();
+  const updates: string[] = [];
+  const values: (string | number | null)[] = [];
+
+  if (data.name !== undefined) {
+    updates.push('name = ?');
+    values.push(data.name);
+  }
+  if (data.current_milestone_id !== undefined) {
+    updates.push('current_milestone_id = ?');
+    values.push(data.current_milestone_id);
+  }
+  if (data.use_knowledge !== undefined) {
+    updates.push('use_knowledge = ?');
+    values.push(data.use_knowledge);
+  }
+
+  if (updates.length === 0) return getProject(id);
+
+  updates.push('updated_at = ?');
+  values.push(new Date().toISOString());
+  values.push(id);
+
+  db.prepare(`UPDATE projects SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  return getProject(id);
 }
 
 // Task operations

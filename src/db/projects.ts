@@ -34,7 +34,7 @@ export function getAllProjects(): Project[] {
   return db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all() as Project[];
 }
 
-export function updateProject(id: string, data: Partial<Pick<Project, 'name' | 'current_milestone_id'>>): Project | null {
+export function updateProject(id: string, data: Partial<Pick<Project, 'name' | 'current_milestone_id' | 'use_knowledge'>>): Project | null {
   const db = getDb();
   const updates: string[] = [];
   const values: unknown[] = [];
@@ -46,6 +46,10 @@ export function updateProject(id: string, data: Partial<Pick<Project, 'name' | '
   if (data.current_milestone_id !== undefined) {
     updates.push('current_milestone_id = ?');
     values.push(data.current_milestone_id);
+  }
+  if (data.use_knowledge !== undefined) {
+    updates.push('use_knowledge = ?');
+    values.push(data.use_knowledge);
   }
 
   if (updates.length === 0) return getProject(id);

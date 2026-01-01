@@ -56,6 +56,16 @@ export function getNextPendingMilestone(projectId: string): Milestone | null {
   `).get(projectId) as Milestone | null;
 }
 
+export function getNextMilestone(projectId: string, currentOrderIndex: number): Milestone | null {
+  const db = getDb();
+  return db.prepare(`
+    SELECT * FROM milestones
+    WHERE project_id = ? AND order_index > ?
+    ORDER BY order_index ASC
+    LIMIT 1
+  `).get(projectId, currentOrderIndex) as Milestone | null;
+}
+
 export function updateMilestoneStatus(id: string, status: MilestoneStatus): Milestone | null {
   const db = getDb();
   db.prepare('UPDATE milestones SET status = ? WHERE id = ?').run(status, id);

@@ -63,6 +63,13 @@ export function getCompletedTasks(projectId: string): Task[] {
   ).all(projectId) as Task[];
 }
 
+export function getFailedTasks(projectId: string): Task[] {
+  const db = getDb();
+  return db.prepare(
+    "SELECT * FROM tasks WHERE project_id = ? AND status = 'failed' ORDER BY updated_at ASC"
+  ).all(projectId) as Task[];
+}
+
 export function updateTaskStatus(id: string, status: TaskStatus): Task | null {
   const db = getDb();
   const now = new Date().toISOString();

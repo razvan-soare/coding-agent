@@ -43,3 +43,22 @@ export function useProject(id: string) {
     enabled: !!id,
   });
 }
+
+export function useToggleKnowledge() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ projectId, enabled }: { projectId: string; enabled: boolean }) => {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ use_knowledge: enabled ? 1 : 0 }),
+      });
+      if (!res.ok) throw new Error('Failed to update project');
+      return res.json();
+    },
+    onSuccess: (data, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+    },
+  });
+}

@@ -18,6 +18,11 @@ function runMigrations(): void {
   if (!columnExists('tasks', 'is_injected')) {
     db.exec(`ALTER TABLE tasks ADD COLUMN is_injected INTEGER NOT NULL DEFAULT 0`);
   }
+
+  // Migration: Add use_knowledge column to projects table
+  if (!columnExists('projects', 'use_knowledge')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN use_knowledge INTEGER NOT NULL DEFAULT 1`);
+  }
 }
 
 export function initializeSchema(): void {

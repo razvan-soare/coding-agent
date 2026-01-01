@@ -82,13 +82,53 @@ Do not include:
 - Implementation details that are already in the code`;
 }
 
+function extractJsonArray(output: string): string | null {
+  // Find the first '[' and match balanced brackets
+  const startIndex = output.indexOf('[');
+  if (startIndex === -1) return null;
+
+  let bracketCount = 0;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = startIndex; i < output.length; i++) {
+    const char = output[i];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === '\\' && inString) {
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === '"' && !escapeNext) {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (char === '[') bracketCount++;
+      if (char === ']') bracketCount--;
+
+      if (bracketCount === 0) {
+        return output.slice(startIndex, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
 function parseExtractionOutput(output: string): ExtractedKnowledge[] {
   try {
-    // Find JSON array in output
-    const arrayMatch = output.match(/\[[\s\S]*?\]/);
-    if (!arrayMatch) return [];
+    // Find JSON array in output using balanced bracket matching
+    const jsonStr = extractJsonArray(output);
+    if (!jsonStr) return [];
 
-    const parsed = JSON.parse(arrayMatch[0]);
+    const parsed = JSON.parse(jsonStr);
     if (!Array.isArray(parsed)) return [];
 
     // Validate and filter entries
@@ -109,7 +149,8 @@ function parseExtractionOutput(output: string): ExtractedKnowledge[] {
       file_path: typeof entry.file_path === 'string' ? entry.file_path : undefined,
       importance: Math.min(10, Math.max(1, entry.importance)),
     }));
-  } catch {
+  } catch (error) {
+    console.error('Failed to parse knowledge extraction output:', error);
     return [];
   }
 }
@@ -145,8 +186,13 @@ export async function extractKnowledge(options: {
 
     const extracted = parseExtractionOutput(result.output);
 
+    if (extracted.length === 0) {
+      console.log('No knowledge entries extracted from output');
+    }
+
     // Save extracted knowledge to database
     for (const entry of extracted) {
+      console.log(`Saving knowledge: [${entry.category}] ${entry.content.slice(0, 50)}...`);
       createKnowledge({
         project_id: project.id,
         category: entry.category,

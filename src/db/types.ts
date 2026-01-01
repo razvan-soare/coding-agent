@@ -4,6 +4,7 @@ export interface Project {
   path: string;
   overview_path: string;
   current_milestone_id: string | null;
+  use_knowledge: number; // 1 = enabled, 0 = disabled
   created_at: string;
   updated_at: string;
 }
