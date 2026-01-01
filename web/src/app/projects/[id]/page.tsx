@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useProject } from '@/lib/hooks/useProjects';
 import { useCreateTask, useDeleteTask } from '@/lib/hooks/useTasks';
 import { useRuns, useLogs } from '@/lib/hooks/useRuns';
+import { useInstance, useStartInstance, useStopInstance } from '@/lib/hooks/useInstances';
 import { formatDate, formatDuration, cn } from '@/lib/utils';
 import {
   ArrowLeft,
@@ -18,13 +19,19 @@ import {
   ChevronDown,
   ChevronRight,
   Zap,
+  Square,
+  ExternalLink,
+  Loader2,
 } from 'lucide-react';
 
-type Tab = 'tasks' | 'runs';
+type Tab = 'tasks' | 'runs' | 'preview';
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { data: project, isLoading, error } = useProject(id);
+  const { data: instance } = useInstance(id);
+  const startInstance = useStartInstance();
+  const stopInstance = useStopInstance();
   const [activeTab, setActiveTab] = useState<Tab>('tasks');
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
@@ -71,8 +78,65 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           <ArrowLeft className="w-4 h-4" />
           Back to Dashboard
         </Link>
-        <h1 className="text-2xl font-bold">{project.name}</h1>
-        <p className="text-muted-foreground text-sm">{project.path}</p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">{project.name}</h1>
+            <p className="text-muted-foreground text-sm">{project.path}</p>
+          </div>
+
+          {/* Instance Controls */}
+          <div className="flex items-center gap-3">
+            {instance?.status === 'running' || instance?.status === 'starting' ? (
+              <>
+                <div className="flex items-center gap-2 text-sm">
+                  {instance.status === 'starting' ? (
+                    <Loader2 className="w-4 h-4 text-yellow-400 animate-spin" />
+                  ) : (
+                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                  )}
+                  <span className="text-muted-foreground">
+                    {instance.status === 'starting' ? 'Starting...' : `Running on port ${instance.port}`}
+                  </span>
+                </div>
+                {instance.status === 'running' && (
+                  <a
+                    href={`http://localhost:${instance.port}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Open Preview
+                  </a>
+                )}
+                <button
+                  onClick={() => stopInstance.mutate(id)}
+                  disabled={stopInstance.isPending}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-destructive text-destructive-foreground rounded-lg hover:bg-destructive/90 disabled:opacity-50"
+                >
+                  <Square className="w-4 h-4" />
+                  Stop
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => startInstance.mutate(id)}
+                disabled={startInstance.isPending}
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+              >
+                {startInstance.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4" />
+                )}
+                Start Dev Server
+              </button>
+            )}
+            {instance?.status === 'error' && (
+              <span className="text-xs text-destructive">{instance.error}</span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -99,6 +163,20 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         >
           Runs ({project.runs.length})
         </button>
+        <button
+          onClick={() => setActiveTab('preview')}
+          className={cn(
+            'pb-3 px-1 text-sm font-medium transition-colors',
+            activeTab === 'preview'
+              ? 'text-primary border-b-2 border-primary'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          Preview
+          {instance?.status === 'running' && (
+            <span className="ml-2 w-2 h-2 rounded-full bg-green-400 inline-block animate-pulse" />
+          )}
+        </button>
       </div>
 
       {/* Content */}
@@ -120,6 +198,10 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           selectedRunId={selectedRunId}
           setSelectedRunId={setSelectedRunId}
         />
+      )}
+
+      {activeTab === 'preview' && (
+        <PreviewTab instance={instance} projectId={id} startInstance={startInstance} />
       )}
     </div>
   );
@@ -518,6 +600,97 @@ function RunsTab({
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function PreviewTab({
+  instance,
+  projectId,
+  startInstance,
+}: {
+  instance: { status: string; port: number; error?: string } | null | undefined;
+  projectId: string;
+  startInstance: { mutate: (id: string) => void; isPending: boolean };
+}) {
+  const isRunning = instance?.status === 'running';
+  const isStarting = instance?.status === 'starting';
+  const previewUrl = isRunning ? `http://localhost:${instance.port}` : null;
+
+  if (!isRunning && !isStarting) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+          <Play className="w-8 h-8 text-muted-foreground" />
+        </div>
+        <h3 className="text-lg font-semibold mb-2">Start the Dev Server</h3>
+        <p className="text-muted-foreground mb-6 max-w-md">
+          Start the development server to preview your project. The preview will update automatically as changes are made.
+        </p>
+        <button
+          onClick={() => startInstance.mutate(projectId)}
+          disabled={startInstance.isPending}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+        >
+          {startInstance.isPending ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Play className="w-4 h-4" />
+          )}
+          Start Dev Server
+        </button>
+        {instance?.status === 'error' && (
+          <p className="mt-4 text-sm text-destructive">{instance.error}</p>
+        )}
+      </div>
+    );
+  }
+
+  if (isStarting) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
+        <h3 className="text-lg font-semibold mb-2">Starting Dev Server...</h3>
+        <p className="text-muted-foreground">
+          Please wait while the development server starts up.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm">
+          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+          <span className="text-muted-foreground">Live at</span>
+          <a
+            href={previewUrl!}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            {previewUrl}
+          </a>
+        </div>
+        <a
+          href={previewUrl!}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
+        >
+          <ExternalLink className="w-4 h-4" />
+          Open in New Tab
+        </a>
+      </div>
+
+      <div className="border border-border rounded-lg overflow-hidden bg-white">
+        <iframe
+          src={previewUrl!}
+          className="w-full h-[70vh]"
+          title="Project Preview"
+        />
       </div>
     </div>
   );
