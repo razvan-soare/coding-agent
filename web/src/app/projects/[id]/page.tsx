@@ -4,7 +4,7 @@ import { useState, use } from 'react';
 import Link from 'next/link';
 import { useProject, useToggleKnowledge } from '@/lib/hooks/useProjects';
 import { useCreateTask, useDeleteTask } from '@/lib/hooks/useTasks';
-import { useRuns, useLogs } from '@/lib/hooks/useRuns';
+import { useRuns, useLogs, useRunStatus, useTriggerRun } from '@/lib/hooks/useRuns';
 import { useInstance, useStartInstance, useStopInstance } from '@/lib/hooks/useInstances';
 import { useKnowledge, useCreateKnowledge, useUpdateKnowledge, useDeleteKnowledge, type KnowledgeCategory } from '@/lib/hooks/useKnowledge';
 import { formatDate, formatDuration, cn } from '@/lib/utils';
@@ -44,6 +44,11 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const { data: instance } = useInstance(id, { pollWhileActive: activeTab === 'preview' });
   const startInstance = useStartInstance();
   const stopInstance = useStopInstance();
+
+  // Run status and trigger
+  const { data: runStatus } = useRunStatus(id);
+  const triggerRun = useTriggerRun();
+
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -89,8 +94,44 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           <ArrowLeft className="w-4 h-4" />
           Back to Dashboard
         </Link>
-        <h1 className="text-2xl font-bold">{project.name}</h1>
-        <p className="text-muted-foreground text-sm">{project.path}</p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">{project.name}</h1>
+            <p className="text-muted-foreground text-sm">{project.path}</p>
+          </div>
+          <button
+            onClick={() => triggerRun.mutate(id)}
+            disabled={triggerRun.isPending || runStatus?.running}
+            className={cn(
+              'inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors',
+              runStatus?.running
+                ? 'bg-blue-500/20 text-blue-400 cursor-not-allowed'
+                : 'bg-primary text-primary-foreground hover:bg-primary/90'
+            )}
+          >
+            {runStatus?.running ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Running...
+              </>
+            ) : triggerRun.isPending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Starting...
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4" />
+                Run Agent
+              </>
+            )}
+          </button>
+        </div>
+        {triggerRun.isError && (
+          <p className="mt-2 text-sm text-destructive">
+            {triggerRun.error?.message || 'Failed to start run'}
+          </p>
+        )}
       </div>
 
       {/* Tabs */}
