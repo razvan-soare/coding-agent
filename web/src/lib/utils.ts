@@ -34,3 +34,26 @@ export function formatDuration(startedAt: string, finishedAt: string | null): st
   }
   return `${seconds}s`;
 }
+
+export function formatTimeUntil(dateString: string | null | undefined): string {
+  if (!dateString) return '';
+
+  const now = new Date().getTime();
+  const target = new Date(dateString).getTime();
+  const diffMs = target - now;
+
+  if (diffMs <= 0) return 'now';
+
+  const seconds = Math.floor(diffMs / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+
+  if (hours > 0) {
+    const remainingMinutes = minutes % 60;
+    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m`;
+  }
+  return `${seconds}s`;
+}

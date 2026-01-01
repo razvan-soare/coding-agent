@@ -7,7 +7,7 @@ import { useCreateTask, useDeleteTask } from '@/lib/hooks/useTasks';
 import { useRuns, useLogs, useRunStatus, useTriggerRun } from '@/lib/hooks/useRuns';
 import { useInstance, useStartInstance, useStopInstance } from '@/lib/hooks/useInstances';
 import { useKnowledge, useCreateKnowledge, useUpdateKnowledge, useDeleteKnowledge, type KnowledgeCategory } from '@/lib/hooks/useKnowledge';
-import { formatDate, formatDuration, cn } from '@/lib/utils';
+import { formatDate, formatDuration, formatTimeUntil, cn } from '@/lib/utils';
 import {
   ArrowLeft,
   Plus,
@@ -152,7 +152,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         {project.cron_enabled === 1 && runStatus?.cron?.nextRun && (
           <p className="mt-2 text-xs text-muted-foreground">
             <Timer className="w-3 h-3 inline-block mr-1" />
-            Next scheduled run: {formatDate(runStatus.cron.nextRun)}
+            Next run in {formatTimeUntil(runStatus.cron.nextRun)} ({formatDate(runStatus.cron.nextRun)})
           </p>
         )}
         {triggerRun.isError && (
