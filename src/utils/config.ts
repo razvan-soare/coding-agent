@@ -9,7 +9,7 @@ config({ path: resolve(projectRoot, '.env') });
 
 export const CONFIG = {
   databasePath: process.env.DATABASE_PATH || resolve(projectRoot, 'data/coding-agent.db'),
-  inactivityTimeoutMs: parseInt(process.env.INACTIVITY_TIMEOUT_MS || '120000', 10),
+  inactivityTimeoutMs: parseInt(process.env.INACTIVITY_TIMEOUT_MS || '600000', 10),
   claudeCodePath: process.env.CLAUDE_CODE_PATH || 'claude',
   projectsDir: resolve(projectRoot, 'projects'),
   projectRoot,

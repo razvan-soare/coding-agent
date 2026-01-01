@@ -1,8 +1,11 @@
 import cron, { ScheduledTask } from 'node-cron';
 import { spawn } from 'child_process';
 import { resolve } from 'path';
-import { parseExpression } from 'cron-parser';
+import * as cronParserModule from 'cron-parser';
 import { getAllProjects, getProject } from './db';
+
+// cron-parser v5 exports CronExpressionParser as default
+const CronParser = (cronParserModule as { default?: { parse: (expr: string) => { next: () => { toDate: () => Date } } } }).default;
 
 // Map of project ID to scheduled task
 const scheduledJobs = new Map<string, ScheduledTask>();
@@ -64,8 +67,12 @@ export function getNextRunTime(schedule: string): Date | null {
   if (!cron.validate(schedule)) return null;
 
   try {
-    const interval = parseExpression(schedule);
-    return interval.next().toDate();
+    if (!CronParser) {
+      console.error('[Cron] CronParser not available');
+      return null;
+    }
+    const expression = CronParser.parse(schedule);
+    return expression.next().toDate();
   } catch (error) {
     console.error('[Cron] Error parsing cron expression:', error);
     return null;

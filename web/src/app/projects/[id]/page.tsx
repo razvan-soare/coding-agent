@@ -175,10 +175,16 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           </div>
         </div>
         {/* Cron Status */}
-        {project.cron_enabled === 1 && runStatus?.cron?.nextRun && (
+        {project.cron_enabled === 1 && (
           <p className="mt-2 text-xs text-muted-foreground">
             <Timer className="w-3 h-3 inline-block mr-1" />
-            Next run in {formatTimeUntil(runStatus.cron.nextRun)} ({formatDate(runStatus.cron.nextRun)})
+            {runStatus?.cron?.nextRun ? (
+              <>Next run in {formatTimeUntil(runStatus.cron.nextRun)} ({formatDate(runStatus.cron.nextRun)})</>
+            ) : runStatus?.cron?.scheduled ? (
+              <>Cron scheduled, calculating next run...</>
+            ) : (
+              <>Cron enabled, waiting to start...</>
+            )}
           </p>
         )}
         {triggerRun.isError && (
