@@ -437,7 +437,8 @@ function RunsTab({
 
   // Use fetched runs or fall back to initial
   const displayRuns = runs || initialRuns;
-  const hasMore = displayRuns.length === limit;
+  // Show "load more" if we got exactly the limit (there might be more)
+  const hasMore = displayRuns.length >= limit;
 
   const statusConfig = {
     running: { color: 'text-blue-400', bg: 'bg-blue-400' },
@@ -461,7 +462,7 @@ function RunsTab({
           </div>
         ) : (
           <>
-            <div className="flex lg:flex-col gap-2 overflow-x-auto pb-2 lg:pb-0 lg:max-h-[60vh] lg:overflow-y-auto">
+            <div className="flex flex-col gap-2 max-h-[50vh] lg:max-h-[60vh] overflow-y-auto">
               {displayRuns.map((run) => {
                 const config = statusConfig[run.status as keyof typeof statusConfig];
                 return (
@@ -469,7 +470,7 @@ function RunsTab({
                     key={run.id}
                     onClick={() => setSelectedRunId(run.id === selectedRunId ? null : run.id)}
                     className={cn(
-                      'min-w-[200px] lg:min-w-0 w-full text-left p-3 rounded-lg border transition-colors flex-shrink-0 lg:flex-shrink',
+                      'w-full text-left p-3 rounded-lg border transition-colors',
                       selectedRunId === run.id
                         ? 'bg-primary/10 border-primary'
                         : 'bg-card border-border hover:border-muted-foreground'
