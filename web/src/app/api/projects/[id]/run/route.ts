@@ -32,8 +32,8 @@ export async function POST(
     // Path to the CLI
     const cliPath = resolve(process.cwd(), '../dist/index.js');
 
-    // Spawn the orchestrator process
-    const child = spawn('node', [cliPath, 'run', id], {
+    // Spawn the orchestrator process with 'manual' trigger source
+    const child = spawn('node', [cliPath, 'run', id, '--trigger', 'manual'], {
       cwd: resolve(process.cwd(), '..'),
       stdio: 'ignore',
       detached: true,
@@ -75,10 +75,19 @@ export async function GET(
     const { id } = await params;
     const running = runningProcesses.get(id);
 
+    // Get cron status
+    const { getCronStatus, ensureCronInitialized } = await import('@/lib/cron');
+    ensureCronInitialized();
+    const cronStatus = getCronStatus(id);
+
     return NextResponse.json({
-      running: !!running,
-      pid: running?.pid,
-      startedAt: running?.startedAt,
+      running: !!running || cronStatus.running,
+      pid: running?.pid || cronStatus.pid,
+      startedAt: running?.startedAt || cronStatus.startedAt,
+      cron: {
+        scheduled: cronStatus.scheduled,
+        nextRun: cronStatus.nextRun,
+      },
     });
   } catch (error) {
     console.error('Error checking run status:', error);

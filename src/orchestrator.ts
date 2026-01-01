@@ -19,6 +19,7 @@ import {
   type Project,
   type Run,
   type Task,
+  type TriggerSource,
 } from './db/index.js';
 import { runPlanner, runPlannerRecovery, type FailedTaskContext } from './agents/planner.js';
 import { runDeveloper, type RetryContext } from './agents/developer.js';
@@ -299,7 +300,7 @@ function isRecoveryTask(task: Task): boolean {
   return task.retry_count >= MAX_RETRIES;
 }
 
-export async function runOrchestrator(projectId: string): Promise<OrchestratorResult> {
+export async function runOrchestrator(projectId: string, triggerSource: TriggerSource = 'cli'): Promise<OrchestratorResult> {
   console.log(`\n=== Starting Orchestrator Run ===\n`);
 
   // Get project
@@ -316,10 +317,11 @@ export async function runOrchestrator(projectId: string): Promise<OrchestratorRe
 
   console.log(`Project: ${project.name}`);
   console.log(`Path: ${project.path}`);
+  console.log(`Trigger: ${triggerSource}`);
 
-  // Create run record
-  const run = createRun(project.id);
-  logAgentStart(run.id, 'orchestrator', `Starting run for project ${project.name}`);
+  // Create run record with trigger source
+  const run = createRun(project.id, undefined, triggerSource);
+  logAgentStart(run.id, 'orchestrator', `Starting run for project ${project.name} (${triggerSource})`);
 
   try {
     // Get or create a task

@@ -62,3 +62,23 @@ export function useToggleKnowledge() {
     },
   });
 }
+
+export function useToggleCron() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ projectId, enabled }: { projectId: string; enabled: boolean }) => {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cron_enabled: enabled ? 1 : 0 }),
+      });
+      if (!res.ok) throw new Error('Failed to update cron settings');
+      return res.json();
+    },
+    onSuccess: (data, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['runStatus', projectId] });
+    },
+  });
+}

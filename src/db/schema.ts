@@ -23,6 +23,21 @@ function runMigrations(): void {
   if (!columnExists('projects', 'use_knowledge')) {
     db.exec(`ALTER TABLE projects ADD COLUMN use_knowledge INTEGER NOT NULL DEFAULT 1`);
   }
+
+  // Migration: Add cron_enabled column to projects table
+  if (!columnExists('projects', 'cron_enabled')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN cron_enabled INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  // Migration: Add cron_schedule column to projects table (default: every 3 hours)
+  if (!columnExists('projects', 'cron_schedule')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN cron_schedule TEXT NOT NULL DEFAULT '0 */3 * * *'`);
+  }
+
+  // Migration: Add trigger_source column to runs table
+  if (!columnExists('runs', 'trigger_source')) {
+    db.exec(`ALTER TABLE runs ADD COLUMN trigger_source TEXT NOT NULL DEFAULT 'cli'`);
+  }
 }
 
 export function initializeSchema(): void {

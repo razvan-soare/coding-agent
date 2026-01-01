@@ -34,7 +34,7 @@ export function getAllProjects(): Project[] {
   return db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all() as Project[];
 }
 
-export function updateProject(id: string, data: Partial<Pick<Project, 'name' | 'current_milestone_id' | 'use_knowledge'>>): Project | null {
+export function updateProject(id: string, data: Partial<Pick<Project, 'name' | 'current_milestone_id' | 'use_knowledge' | 'cron_enabled' | 'cron_schedule'>>): Project | null {
   const db = getDb();
   const updates: string[] = [];
   const values: unknown[] = [];
@@ -50,6 +50,14 @@ export function updateProject(id: string, data: Partial<Pick<Project, 'name' | '
   if (data.use_knowledge !== undefined) {
     updates.push('use_knowledge = ?');
     values.push(data.use_knowledge);
+  }
+  if (data.cron_enabled !== undefined) {
+    updates.push('cron_enabled = ?');
+    values.push(data.cron_enabled);
+  }
+  if (data.cron_schedule !== undefined) {
+    updates.push('cron_schedule = ?');
+    values.push(data.cron_schedule);
   }
 
   if (updates.length === 0) return getProject(id);

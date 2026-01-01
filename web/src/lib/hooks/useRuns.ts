@@ -43,6 +43,10 @@ interface RunStatus {
   running: boolean;
   pid?: number;
   startedAt?: string;
+  cron?: {
+    scheduled: boolean;
+    nextRun?: string | null;
+  };
 }
 
 export function useRunStatus(projectId: string, enabled = true) {

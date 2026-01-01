@@ -5,6 +5,8 @@ export interface Project {
   overview_path: string;
   current_milestone_id: string | null;
   use_knowledge: number; // 1 = enabled, 0 = disabled
+  cron_enabled: number; // 1 = enabled, 0 = disabled
+  cron_schedule: string; // cron expression, default '0 */3 * * *' (every 3 hours)
   created_at: string;
   updated_at: string;
 }
@@ -39,12 +41,14 @@ export interface Task {
 }
 
 export type RunStatus = 'running' | 'completed' | 'failed';
+export type TriggerSource = 'cli' | 'manual' | 'cron';
 
 export interface Run {
   id: string;
   project_id: string;
   task_id: string | null;
   status: RunStatus;
+  trigger_source: TriggerSource;
   started_at: string;
   finished_at: string | null;
   git_commit_sha: string | null;

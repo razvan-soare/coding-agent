@@ -2,7 +2,7 @@
 
 import { useState, use } from 'react';
 import Link from 'next/link';
-import { useProject, useToggleKnowledge } from '@/lib/hooks/useProjects';
+import { useProject, useToggleKnowledge, useToggleCron } from '@/lib/hooks/useProjects';
 import { useCreateTask, useDeleteTask } from '@/lib/hooks/useTasks';
 import { useRuns, useLogs, useRunStatus, useTriggerRun } from '@/lib/hooks/useRuns';
 import { useInstance, useStartInstance, useStopInstance } from '@/lib/hooks/useInstances';
@@ -31,6 +31,9 @@ import {
   Save,
   ToggleLeft,
   ToggleRight,
+  Timer,
+  Terminal,
+  MousePointer,
 } from 'lucide-react';
 
 type Tab = 'tasks' | 'runs' | 'knowledge' | 'preview';
@@ -48,6 +51,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   // Run status and trigger
   const { data: runStatus } = useRunStatus(id);
   const triggerRun = useTriggerRun();
+  const toggleCron = useToggleCron();
 
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
@@ -99,34 +103,58 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
             <h1 className="text-xl sm:text-2xl font-bold truncate">{project.name}</h1>
             <p className="text-muted-foreground text-xs sm:text-sm truncate">{project.path}</p>
           </div>
-          <button
-            onClick={() => triggerRun.mutate(id)}
-            disabled={triggerRun.isPending || runStatus?.running}
-            className={cn(
-              'inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors w-full sm:w-auto flex-shrink-0',
-              runStatus?.running
-                ? 'bg-blue-500/20 text-blue-400 cursor-not-allowed'
-                : 'bg-primary text-primary-foreground hover:bg-primary/90'
-            )}
-          >
-            {runStatus?.running ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Running...
-              </>
-            ) : triggerRun.isPending ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Starting...
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4" />
-                Run Agent
-              </>
-            )}
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            {/* Cron Toggle */}
+            <button
+              onClick={() => toggleCron.mutate({ projectId: id, enabled: project.cron_enabled !== 1 })}
+              disabled={toggleCron.isPending}
+              className={cn(
+                'inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                project.cron_enabled === 1
+                  ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              )}
+            >
+              <Timer className="w-4 h-4" />
+              {toggleCron.isPending ? 'Updating...' : project.cron_enabled === 1 ? 'Cron On' : 'Cron Off'}
+            </button>
+            {/* Run Agent Button */}
+            <button
+              onClick={() => triggerRun.mutate(id)}
+              disabled={triggerRun.isPending || runStatus?.running}
+              className={cn(
+                'inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors flex-1 sm:flex-none',
+                runStatus?.running
+                  ? 'bg-blue-500/20 text-blue-400 cursor-not-allowed'
+                  : 'bg-primary text-primary-foreground hover:bg-primary/90'
+              )}
+            >
+              {runStatus?.running ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Running...
+                </>
+              ) : triggerRun.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4" />
+                  Run Agent
+                </>
+              )}
+            </button>
+          </div>
         </div>
+        {/* Cron Status */}
+        {project.cron_enabled === 1 && runStatus?.cron?.nextRun && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            <Timer className="w-3 h-3 inline-block mr-1" />
+            Next scheduled run: {formatDate(runStatus.cron.nextRun)}
+          </p>
+        )}
         {triggerRun.isError && (
           <p className="mt-2 text-sm text-destructive">
             {triggerRun.error?.message || 'Failed to start run'}
@@ -485,6 +513,20 @@ function RunsTab({
                         )}
                       />
                       <span className="text-sm font-medium capitalize">{run.status}</span>
+                      {/* Trigger Source Badge */}
+                      {run.trigger_source && (
+                        <span className={cn(
+                          'inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded',
+                          run.trigger_source === 'cron' && 'bg-purple-500/20 text-purple-400',
+                          run.trigger_source === 'manual' && 'bg-blue-500/20 text-blue-400',
+                          run.trigger_source === 'cli' && 'bg-gray-500/20 text-gray-400'
+                        )}>
+                          {run.trigger_source === 'cron' && <Timer className="w-2.5 h-2.5" />}
+                          {run.trigger_source === 'manual' && <MousePointer className="w-2.5 h-2.5" />}
+                          {run.trigger_source === 'cli' && <Terminal className="w-2.5 h-2.5" />}
+                          {run.trigger_source}
+                        </span>
+                      )}
                       {run.git_commit_sha && (
                         <span className="text-xs text-muted-foreground font-mono">
                           {run.git_commit_sha.slice(0, 7)}

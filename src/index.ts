@@ -130,14 +130,16 @@ program
 program
   .command('run <project-id>')
   .description('Run one orchestrator session')
-  .action(async (projectId: string) => {
+  .option('-t, --trigger <source>', 'Trigger source (cli, manual, cron)', 'cli')
+  .action(async (projectId: string, options: { trigger?: string }) => {
     const project = getProject(projectId);
     if (!project) {
       console.error(`Project not found: ${projectId}`);
       process.exit(1);
     }
 
-    const result = await runOrchestrator(projectId);
+    const triggerSource = (options.trigger || 'cli') as 'cli' | 'manual' | 'cron';
+    const result = await runOrchestrator(projectId, triggerSource);
 
     console.log('\n=== Run Complete ===');
     console.log(`Success: ${result.success}`);

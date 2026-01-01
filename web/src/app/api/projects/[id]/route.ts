@@ -43,15 +43,32 @@ export async function PATCH(
     const { id } = await params;
     const body = await request.json();
 
-    const project = updateProject(id, {
-      use_knowledge: body.use_knowledge,
-    });
+    const updateData: Parameters<typeof updateProject>[1] = {};
+
+    if (body.use_knowledge !== undefined) {
+      updateData.use_knowledge = body.use_knowledge;
+    }
+    if (body.cron_enabled !== undefined) {
+      updateData.cron_enabled = body.cron_enabled;
+    }
+    if (body.cron_schedule !== undefined) {
+      updateData.cron_schedule = body.cron_schedule;
+    }
+
+    const project = updateProject(id, updateData);
 
     if (!project) {
       return NextResponse.json(
         { error: 'Project not found' },
         { status: 404 }
       );
+    }
+
+    // If cron settings changed, update the cron service
+    if (body.cron_enabled !== undefined || body.cron_schedule !== undefined) {
+      const { updateCronJob, ensureCronInitialized } = await import('@/lib/cron');
+      ensureCronInitialized();
+      updateCronJob(id, project.cron_enabled === 1, project.cron_schedule);
     }
 
     return NextResponse.json(project);

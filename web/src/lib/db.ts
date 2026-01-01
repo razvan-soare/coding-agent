@@ -23,6 +23,8 @@ export interface Project {
   overview_path: string;
   current_milestone_id: string | null;
   use_knowledge: number; // 1 = enabled, 0 = disabled
+  cron_enabled: number; // 1 = enabled, 0 = disabled
+  cron_schedule: string; // cron expression, default '0 */3 * * *'
   created_at: string;
   updated_at: string;
 }
@@ -42,11 +44,14 @@ export interface Task {
   updated_at: string;
 }
 
+export type TriggerSource = 'cli' | 'manual' | 'cron';
+
 export interface Run {
   id: string;
   project_id: string;
   task_id: string | null;
   status: 'running' | 'completed' | 'failed';
+  trigger_source: TriggerSource;
   started_at: string;
   finished_at: string | null;
   git_commit_sha: string | null;
@@ -102,7 +107,7 @@ export function getProject(id: string): Project | null {
 
 export function updateProject(
   id: string,
-  data: Partial<Pick<Project, 'name' | 'current_milestone_id' | 'use_knowledge'>>
+  data: Partial<Pick<Project, 'name' | 'current_milestone_id' | 'use_knowledge' | 'cron_enabled' | 'cron_schedule'>>
 ): Project | null {
   const db = getDb();
   const updates: string[] = [];
@@ -119,6 +124,14 @@ export function updateProject(
   if (data.use_knowledge !== undefined) {
     updates.push('use_knowledge = ?');
     values.push(data.use_knowledge);
+  }
+  if (data.cron_enabled !== undefined) {
+    updates.push('cron_enabled = ?');
+    values.push(data.cron_enabled);
+  }
+  if (data.cron_schedule !== undefined) {
+    updates.push('cron_schedule = ?');
+    values.push(data.cron_schedule);
   }
 
   if (updates.length === 0) return getProject(id);

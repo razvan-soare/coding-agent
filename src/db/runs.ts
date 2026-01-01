@@ -1,16 +1,16 @@
 import { v4 as uuid } from 'uuid';
 import { getDb } from './client.js';
-import type { Run, RunStatus } from './types.js';
+import type { Run, RunStatus, TriggerSource } from './types.js';
 
-export function createRun(projectId: string, taskId?: string): Run {
+export function createRun(projectId: string, taskId?: string, triggerSource: TriggerSource = 'cli'): Run {
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
 
   db.prepare(`
-    INSERT INTO runs (id, project_id, task_id, started_at)
-    VALUES (?, ?, ?, ?)
-  `).run(id, projectId, taskId ?? null, now);
+    INSERT INTO runs (id, project_id, task_id, trigger_source, started_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(id, projectId, taskId ?? null, triggerSource, now);
 
   return getRun(id)!;
 }
