@@ -18,8 +18,6 @@ import {
   ChevronDown,
   ChevronRight,
   Zap,
-  Maximize2,
-  Minimize2,
 } from 'lucide-react';
 
 type Tab = 'tasks' | 'runs';
@@ -340,20 +338,6 @@ function RunsTab({
   const [limit, setLimit] = useState(10);
   const { data: runs, isLoading: runsLoading } = useRuns(projectId, limit);
   const { data: logs, isLoading: logsLoading } = useLogs(selectedRunId || '');
-  // Track expanded log sections: key is `${logId}-prompt` or `${logId}-response`
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
-
-  const toggleSection = (key: string) => {
-    setExpandedSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  };
 
   // Use fetched runs or fall back to initial
   const displayRuns = runs || initialRuns;
@@ -489,93 +473,37 @@ function RunsTab({
 
                   {/* Content */}
                   <div className="p-3 sm:p-4 space-y-3 sm:space-y-4">
-                    {log.prompt && (() => {
-                      const promptKey = `${log.id}-prompt`;
-                      const isExpanded = expandedSections.has(promptKey);
-                      const needsTruncation = log.prompt.length > 2000;
-                      const displayText = isExpanded || !needsTruncation
-                        ? log.prompt
-                        : log.prompt.slice(0, 2000) + '\n\n... (click expand to see full prompt)';
-
-                      return (
-                        <div>
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <span className="text-[10px] sm:text-xs font-semibold text-cyan-400 uppercase tracking-wide">
-                              → What we asked
-                            </span>
-                            {needsTruncation && (
-                              <button
-                                onClick={() => toggleSection(promptKey)}
-                                className="flex items-center gap-1 text-[10px] sm:text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
-                              >
-                                {isExpanded ? (
-                                  <>
-                                    <Minimize2 className="w-3 h-3" />
-                                    Collapse
-                                  </>
-                                ) : (
-                                  <>
-                                    <Maximize2 className="w-3 h-3" />
-                                    Expand ({Math.round(log.prompt.length / 1000)}k chars)
-                                  </>
-                                )}
-                              </button>
-                            )}
-                          </div>
-                          <pre className={cn(
-                            "text-[10px] sm:text-xs bg-cyan-950/30 border border-cyan-900/50 text-cyan-100 p-2 sm:p-3 rounded-lg overflow-x-auto whitespace-pre-wrap break-words",
-                            isExpanded ? "max-h-[80vh]" : "max-h-48 sm:max-h-60",
-                            "overflow-y-auto"
-                          )}>
-                            {displayText}
-                          </pre>
+                    {log.prompt && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-[10px] sm:text-xs font-semibold text-cyan-400 uppercase tracking-wide">
+                            → What we asked
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            ({log.prompt.length.toLocaleString()} chars)
+                          </span>
                         </div>
-                      );
-                    })()}
+                        <pre className="text-[10px] sm:text-xs bg-cyan-950/30 border border-cyan-900/50 text-cyan-100 p-2 sm:p-3 rounded-lg overflow-x-auto max-h-[60vh] overflow-y-auto whitespace-pre-wrap break-words">
+                          {log.prompt}
+                        </pre>
+                      </div>
+                    )}
 
-                    {log.response && (() => {
-                      const responseKey = `${log.id}-response`;
-                      const isExpanded = expandedSections.has(responseKey);
-                      const needsTruncation = log.response.length > 3000;
-                      const displayText = isExpanded || !needsTruncation
-                        ? log.response
-                        : log.response.slice(0, 3000) + '\n\n... (click expand to see full response)';
-
-                      return (
-                        <div>
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <span className="text-[10px] sm:text-xs font-semibold text-green-400 uppercase tracking-wide">
-                              ← Agent response
-                            </span>
-                            {needsTruncation && (
-                              <button
-                                onClick={() => toggleSection(responseKey)}
-                                className="flex items-center gap-1 text-[10px] sm:text-xs text-green-400 hover:text-green-300 transition-colors"
-                              >
-                                {isExpanded ? (
-                                  <>
-                                    <Minimize2 className="w-3 h-3" />
-                                    Collapse
-                                  </>
-                                ) : (
-                                  <>
-                                    <Maximize2 className="w-3 h-3" />
-                                    Expand ({Math.round(log.response.length / 1000)}k chars)
-                                  </>
-                                )}
-                              </button>
-                            )}
-                          </div>
-                          <pre className={cn(
-                            "text-[10px] sm:text-xs bg-green-950/30 border border-green-900/50 text-green-100 p-2 sm:p-3 rounded-lg overflow-x-auto whitespace-pre-wrap break-words",
-                            isExpanded ? "max-h-[80vh]" : "max-h-48 sm:max-h-60",
-                            "overflow-y-auto"
-                          )}>
-                            {displayText}
-                          </pre>
+                    {log.response && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-[10px] sm:text-xs font-semibold text-green-400 uppercase tracking-wide">
+                            ← Agent response
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            ({log.response.length.toLocaleString()} chars)
+                          </span>
                         </div>
-                      );
-                    })()}
+                        <pre className="text-[10px] sm:text-xs bg-green-950/30 border border-green-900/50 text-green-100 p-2 sm:p-3 rounded-lg overflow-x-auto max-h-[60vh] overflow-y-auto whitespace-pre-wrap break-words">
+                          {log.response}
+                        </pre>
+                      </div>
+                    )}
 
                     {!log.prompt && !log.response && (
                       <div className="text-sm text-muted-foreground italic">
