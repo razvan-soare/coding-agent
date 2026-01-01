@@ -37,12 +37,24 @@ ${completedTasksList}
 [Instructions]
 1. Analyze what has been built so far
 2. Determine the next logical task to implement
-3. Generate ONE task with detailed instructions
+3. Generate ONE task with a clear description
+
+IMPORTANT: Focus on WHAT needs to be done, not HOW to implement it:
+- Describe the feature, behavior, or outcome expected
+- Mention any specific requirements (responsive design, accessibility, etc.)
+- You may suggest UI/UX considerations (icons, colors, layout preferences)
+- Do NOT include code snippets, import statements, or implementation details
+- Do NOT specify exact function names, file paths, or technical architecture
+- Let the developer decide the implementation approach
+
+Good example: "Add a dark mode toggle to the settings page. The toggle should persist user preference and apply theme changes immediately."
+
+Bad example: "Create a ThemeContext using React.createContext. Import { useState, useEffect } from 'react'..."
 
 Output ONLY a JSON object (no markdown, no explanation):
 {
   "title": "short descriptive title",
-  "description": "detailed implementation instructions that a junior developer can follow. Include specific file paths, function names, and step-by-step guidance."
+  "description": "Clear description of WHAT should be built, the expected behavior, and any specific requirements. No code."
 }
 
 If the current milestone is complete, output:
@@ -201,10 +213,15 @@ The original task was too complex or had issues. Generate a SIMPLER, more focuse
 2. Avoids the issues that caused the failure
 3. Can be completed in a single session
 
+IMPORTANT: Focus on WHAT needs to be done, not HOW to implement it:
+- Describe the feature, behavior, or outcome expected
+- Do NOT include code snippets, import statements, or implementation details
+- Let the developer decide the implementation approach
+
 Output ONLY a JSON object (no markdown, no explanation):
 {
   "title": "short descriptive title for the simpler task",
-  "description": "detailed but focused implementation instructions"
+  "description": "Clear description of WHAT should be built. No code."
 }
 
 If the task fundamentally cannot be done (e.g., missing dependencies, wrong approach), output:
