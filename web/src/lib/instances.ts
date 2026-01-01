@@ -1,6 +1,7 @@
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, execSync } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { createServer } from 'net';
 
 export interface ProjectInstance {
   projectId: string;
@@ -21,8 +22,32 @@ const BASE_PORT = 4000;
 const PORT_INCREMENT = 10;
 const usedPorts = new Set<number>();
 
+// Check if a port is available
+function isPortAvailable(port: number): boolean {
+  try {
+    // Try to check with lsof first (faster)
+    const result = execSync(`lsof -i :${port} 2>/dev/null || true`, { encoding: 'utf-8' });
+    return result.trim() === '';
+  } catch {
+    return true; // Assume available if check fails
+  }
+}
+
 function getNextPort(): number {
   let port = BASE_PORT;
+  let attempts = 0;
+  const maxAttempts = 20;
+
+  while (attempts < maxAttempts) {
+    if (!usedPorts.has(port) && isPortAvailable(port)) {
+      usedPorts.add(port);
+      return port;
+    }
+    port += PORT_INCREMENT;
+    attempts++;
+  }
+
+  // Fallback: just use the next port in our tracking
   while (usedPorts.has(port)) {
     port += PORT_INCREMENT;
   }
@@ -54,7 +79,7 @@ function detectProjectType(projectPath: string): { command: string; args: string
 
     // Check for Next.js
     if (deps['next']) {
-      return { command: 'npm', args: ['run', 'dev', '--'], portFlag: '-p' };
+      return { command: 'npm', args: ['run', 'dev', '--', '-H', '0.0.0.0'], portFlag: '-p' };
     }
 
     // Check for Vite
@@ -85,7 +110,7 @@ function detectProjectType(projectPath: string): { command: string; args: string
 export function startProject(projectId: string, projectPath: string): ProjectInstance {
   // Check if already running
   const existing = instances.get(projectId);
-  if (existing && existing.status === 'running') {
+  if (existing && (existing.status === 'running' || existing.status === 'starting')) {
     return existing;
   }
 
@@ -106,13 +131,13 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
 
   const port = getNextPort();
 
-  // Build command with port
-  let args = [...projectType.args];
+  // Build the full command as a string for shell execution
+  let command: string;
   if (projectType.portFlag === 'PORT') {
     // Create React App uses environment variable
-    args = projectType.args;
+    command = `PORT=${port} ${projectType.command} ${projectType.args.join(' ')}`;
   } else {
-    args.push(projectType.portFlag, port.toString());
+    command = `${projectType.command} ${projectType.args.join(' ')} ${projectType.portFlag} ${port}`;
   }
 
   const instance: ProjectInstance = {
@@ -126,17 +151,17 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
 
   try {
     const env = { ...process.env };
-    if (projectType.portFlag === 'PORT') {
-      env.PORT = port.toString();
-    }
     // Bind to all interfaces so it's accessible via Tailscale
-    env.HOST = '0.0.0.0';
+    env.HOSTNAME = '0.0.0.0';
 
-    const child = spawn(projectType.command, args, {
+    console.log(`[Instance] Starting project at ${projectPath} with command: ${command}`);
+
+    const child = spawn(command, [], {
       cwd: projectPath,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false,
+      shell: true,
+      detached: true,
     });
 
     instance.pid = child.pid || 0;
@@ -144,10 +169,14 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
 
     // Listen for output to detect when server is ready
     let output = '';
+    let errorOutput = '';
+
     child.stdout?.on('data', (data) => {
-      output += data.toString();
+      const text = data.toString();
+      output += text;
+      console.log(`[Instance ${projectId}] stdout:`, text.trim());
       // Common patterns that indicate server is ready
-      if (output.includes('ready') || output.includes('localhost:') || output.includes('Local:')) {
+      if (output.includes('Ready') || output.includes('ready') || output.includes('localhost:') || output.includes('Local:')) {
         const inst = instances.get(projectId);
         if (inst && inst.status === 'starting') {
           inst.status = 'running';
@@ -157,10 +186,21 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
     });
 
     child.stderr?.on('data', (data) => {
-      output += data.toString();
+      const text = data.toString();
+      errorOutput += text;
+      console.log(`[Instance ${projectId}] stderr:`, text.trim());
+      // Next.js outputs to stderr for some messages
+      if (text.includes('Ready') || text.includes('ready') || text.includes('Local:')) {
+        const inst = instances.get(projectId);
+        if (inst && inst.status === 'starting') {
+          inst.status = 'running';
+          instances.set(projectId, inst);
+        }
+      }
     });
 
     child.on('error', (err) => {
+      console.error(`[Instance ${projectId}] error:`, err);
       const inst = instances.get(projectId);
       if (inst) {
         inst.status = 'error';
@@ -170,12 +210,13 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
       releasePort(port);
     });
 
-    child.on('exit', (code) => {
+    child.on('exit', (code, signal) => {
+      console.log(`[Instance ${projectId}] exited with code ${code}, signal ${signal}`);
       const inst = instances.get(projectId);
       if (inst) {
         inst.status = 'stopped';
         if (code !== 0 && code !== null) {
-          inst.error = `Process exited with code ${code}`;
+          inst.error = `Process exited with code ${code}. ${errorOutput.slice(-500)}`;
         }
         instances.set(projectId, inst);
       }
@@ -183,19 +224,23 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
       releasePort(port);
     });
 
+    // Unref so the parent process can exit
+    child.unref();
+
     instances.set(projectId, instance);
 
-    // After 3 seconds, assume it's running if still in 'starting' state
+    // After 5 seconds, assume it's running if still in 'starting' state
     setTimeout(() => {
       const inst = instances.get(projectId);
       if (inst && inst.status === 'starting') {
         inst.status = 'running';
         instances.set(projectId, inst);
       }
-    }, 3000);
+    }, 5000);
 
     return instance;
   } catch (err) {
+    console.error(`[Instance ${projectId}] spawn error:`, err);
     releasePort(port);
     instance.status = 'error';
     instance.error = err instanceof Error ? err.message : 'Failed to start process';
@@ -212,17 +257,25 @@ export function stopProject(projectId: string): ProjectInstance | null {
     return null;
   }
 
-  if (child) {
+  console.log(`[Instance] Stopping project ${projectId}, pid: ${instance.pid}`);
+
+  if (child && child.pid) {
     try {
-      // Kill the process group
-      if (child.pid) {
-        process.kill(-child.pid, 'SIGTERM');
-      } else {
-        child.kill('SIGTERM');
+      // Kill the process group (negative PID kills the group)
+      process.kill(-child.pid, 'SIGTERM');
+      console.log(`[Instance] Sent SIGTERM to process group -${child.pid}`);
+    } catch (err) {
+      console.log(`[Instance] SIGTERM failed, trying SIGKILL:`, err);
+      try {
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        // Process might already be dead
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // Ignore - process is already dead
+        }
       }
-    } catch {
-      // Process might already be dead
-      child.kill('SIGKILL');
     }
     processes.delete(projectId);
   }
