@@ -7,6 +7,7 @@ import { useCreateTask, useDeleteTask } from '@/lib/hooks/useTasks';
 import { useRuns, useLogs, useRunStatus, useTriggerRun } from '@/lib/hooks/useRuns';
 import { useInstance, useStartInstance, useStopInstance } from '@/lib/hooks/useInstances';
 import { useKnowledge, useCreateKnowledge, useUpdateKnowledge, useDeleteKnowledge, type KnowledgeCategory } from '@/lib/hooks/useKnowledge';
+import { useMilestones, useCreateMilestone, useUpdateMilestone, useDeleteMilestone, useBulkCreateMilestones, type MilestoneStatus } from '@/lib/hooks/useMilestones';
 import { formatDate, formatDuration, formatTimeUntil, cn } from '@/lib/utils';
 import {
   ArrowLeft,
@@ -34,9 +35,14 @@ import {
   Timer,
   Terminal,
   MousePointer,
+  Target,
+  Archive,
+  ArchiveRestore,
+  Sparkles,
+  MessageSquare,
 } from 'lucide-react';
 
-type Tab = 'tasks' | 'runs' | 'knowledge' | 'preview';
+type Tab = 'tasks' | 'runs' | 'knowledge' | 'milestones' | 'preview';
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -231,6 +237,18 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           Knowledge
         </button>
         <button
+          onClick={() => setActiveTab('milestones')}
+          className={cn(
+            'pb-3 px-1 text-sm font-medium transition-colors',
+            activeTab === 'milestones'
+              ? 'text-primary border-b-2 border-primary'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <Target className="w-4 h-4 inline-block mr-1" />
+          Milestones
+        </button>
+        <button
           onClick={() => setActiveTab('preview')}
           className={cn(
             'pb-3 px-1 text-sm font-medium transition-colors',
@@ -272,6 +290,10 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
 
       {activeTab === 'knowledge' && (
         <KnowledgeTab projectId={id} knowledgeEnabled={project.use_knowledge === 1} />
+      )}
+
+      {activeTab === 'milestones' && (
+        <MilestonesTab projectId={id} />
       )}
 
       {activeTab === 'preview' && (
@@ -1218,6 +1240,442 @@ function KnowledgeTab({ projectId, knowledgeEnabled }: { projectId: string; know
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MilestonesTab({ projectId }: { projectId: string }) {
+  // State
+  const [showArchived, setShowArchived] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showChatPlanner, setShowChatPlanner] = useState(false);
+
+  // Form state
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+
+  // Chat planner state
+  const [featureIdea, setFeatureIdea] = useState('');
+  const [apiKey, setApiKey] = useState(() =>
+    typeof window !== 'undefined' ? localStorage.getItem('openai-api-key') || '' : ''
+  );
+  const [plannerResponse, setPlannerResponse] = useState('');
+  const [isPlanning, setIsPlanning] = useState(false);
+  const [suggestedMilestones, setSuggestedMilestones] = useState<Array<{ title: string; description: string }>>([]);
+
+  // Queries & mutations
+  const { data: milestones, isLoading } = useMilestones(projectId, showArchived);
+  const createMilestone = useCreateMilestone();
+  const updateMilestone = useUpdateMilestone();
+  const deleteMilestone = useDeleteMilestone();
+  const bulkCreate = useBulkCreateMilestones();
+
+  // Status configuration
+  const statusConfig = {
+    pending: { icon: Clock, color: 'text-muted-foreground', bg: 'bg-muted', label: 'Pending' },
+    in_progress: { icon: Play, color: 'text-blue-400', bg: 'bg-blue-400/10', label: 'In Progress' },
+    completed: { icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-400/10', label: 'Completed' },
+  };
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+
+    await createMilestone.mutateAsync({
+      project_id: projectId,
+      title: title.trim(),
+      description: description.trim() || undefined,
+    });
+
+    setTitle('');
+    setDescription('');
+    setShowCreateForm(false);
+  };
+
+  const handleStatusChange = (id: string, status: string) => {
+    updateMilestone.mutate({ id, status: status as MilestoneStatus });
+  };
+
+  const handleArchive = (id: string, archive: boolean) => {
+    updateMilestone.mutate({ id, archived: archive ? 1 : 0 });
+  };
+
+  const handleDelete = (id: string) => {
+    if (confirm('Are you sure you want to delete this milestone?')) {
+      deleteMilestone.mutate({ id, projectId });
+    }
+  };
+
+  const handlePlanGeneration = async () => {
+    if (!featureIdea.trim() || !apiKey.trim()) return;
+
+    setIsPlanning(true);
+    setPlannerResponse('');
+    setSuggestedMilestones([]);
+
+    try {
+      const response = await fetch('/api/milestones/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ featureIdea, openaiApiKey: apiKey }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to generate plan');
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = '';
+
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') break;
+
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.content) {
+                fullResponse += parsed.content;
+                setPlannerResponse(fullResponse);
+              }
+            } catch {
+              // Skip non-JSON lines
+            }
+          }
+        }
+      }
+
+      // Parse completed response
+      try {
+        const result = JSON.parse(fullResponse);
+        if (result.milestones && Array.isArray(result.milestones)) {
+          setSuggestedMilestones(result.milestones);
+        }
+      } catch {
+        console.error('Failed to parse milestones from response');
+      }
+    } catch (error) {
+      console.error('Planning failed:', error);
+      setPlannerResponse(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsPlanning(false);
+    }
+  };
+
+  const handleApproveAll = async () => {
+    if (suggestedMilestones.length === 0) return;
+
+    await bulkCreate.mutateAsync({
+      project_id: projectId,
+      milestones: suggestedMilestones,
+    });
+
+    setSuggestedMilestones([]);
+    setPlannerResponse('');
+    setFeatureIdea('');
+    setShowChatPlanner(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header with actions */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Project Milestones</h2>
+          <p className="text-sm text-muted-foreground">
+            Track progress through major project phases
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {/* Show/Hide Archived Toggle */}
+          <button
+            onClick={() => setShowArchived(!showArchived)}
+            className={cn(
+              'inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+              showArchived
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            )}
+          >
+            <Archive className="w-4 h-4" />
+            {showArchived ? 'Hide Archived' : 'Show Archived'}
+          </button>
+
+          {/* AI Planner Button */}
+          <button
+            onClick={() => setShowChatPlanner(!showChatPlanner)}
+            className={cn(
+              'inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+              showChatPlanner
+                ? 'bg-purple-500/20 text-purple-400'
+                : 'bg-muted text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <Sparkles className="w-4 h-4" />
+            AI Planner
+          </button>
+
+          {/* Create Milestone Button */}
+          <button
+            onClick={() => setShowCreateForm(!showCreateForm)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Milestone
+          </button>
+        </div>
+      </div>
+
+      {/* AI Chat Planner Section */}
+      {showChatPlanner && (
+        <div className="p-4 bg-card rounded-lg border border-border">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-400" />
+              <h3 className="font-medium">AI Milestone Planner</h3>
+            </div>
+            <button
+              onClick={() => setShowChatPlanner(false)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* API Key input */}
+          <div className="mb-4">
+            <label className="block text-sm text-muted-foreground mb-1">OpenAI API Key</label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('openai-api-key', e.target.value);
+                }
+              }}
+              placeholder="sk-..."
+              className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+
+          {/* Feature idea input */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-1">Feature Idea</label>
+            <textarea
+              value={featureIdea}
+              onChange={(e) => setFeatureIdea(e.target.value)}
+              rows={3}
+              placeholder="Describe the feature you want to build, e.g., 'add a blog mdx builder with custom blocks'"
+              className="w-full px-3 py-2 bg-input border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+
+          <button
+            onClick={handlePlanGeneration}
+            disabled={!featureIdea.trim() || !apiKey.trim() || isPlanning}
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isPlanning ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Generating...
+              </span>
+            ) : (
+              'Generate Milestones'
+            )}
+          </button>
+
+          {/* Streaming response display */}
+          {plannerResponse && !suggestedMilestones.length && (
+            <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+              <pre className="text-sm whitespace-pre-wrap font-mono">{plannerResponse}</pre>
+            </div>
+          )}
+
+          {/* Suggested milestones with approve/reject */}
+          {suggestedMilestones.length > 0 && (
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium">Suggested Milestones ({suggestedMilestones.length})</h4>
+                <button
+                  onClick={handleApproveAll}
+                  disabled={bulkCreate.isPending}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50"
+                >
+                  {bulkCreate.isPending ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <CheckCircle className="w-3 h-3" />
+                  )}
+                  Approve All
+                </button>
+              </div>
+              <div className="space-y-2">
+                {suggestedMilestones.map((m, i) => (
+                  <div key={i} className="p-3 bg-muted rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center text-xs font-medium">
+                        {i + 1}
+                      </span>
+                      <div>
+                        <div className="font-medium">{m.title}</div>
+                        {m.description && (
+                          <div className="text-sm text-muted-foreground mt-1">{m.description}</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Create Form */}
+      {showCreateForm && (
+        <form onSubmit={handleCreate} className="p-4 bg-card rounded-lg border border-border">
+          <h3 className="font-medium mb-4">Create New Milestone</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Title</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Milestone title"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Description (optional)</label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 bg-input border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="What does this milestone achieve?"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={createMilestone.isPending}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50"
+              >
+                {createMilestone.isPending ? 'Creating...' : 'Create Milestone'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreateForm(false);
+                  setTitle('');
+                  setDescription('');
+                }}
+                className="px-4 py-2 text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </form>
+      )}
+
+      {/* Milestones List */}
+      {isLoading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-20 bg-card border border-border rounded-lg animate-pulse" />
+          ))}
+        </div>
+      ) : !milestones || milestones.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <Target className="w-12 h-12 mx-auto mb-4 opacity-50" />
+          <p className="mb-2">No milestones yet</p>
+          <p className="text-sm">Create milestones to track your project progress, or use the AI Planner to generate them.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {milestones.map((milestone, index) => {
+            const config = statusConfig[milestone.status as keyof typeof statusConfig] || statusConfig.pending;
+            const StatusIcon = config.icon;
+
+            return (
+              <div
+                key={milestone.id}
+                className={cn(
+                  'bg-card rounded-lg border border-border p-4 transition-colors hover:border-muted-foreground/50',
+                  milestone.archived === 1 && 'opacity-60'
+                )}
+              >
+                {/* Header row: order, status, title */}
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="flex-shrink-0 w-7 h-7 rounded-full bg-muted flex items-center justify-center text-sm font-medium">
+                    {index + 1}
+                  </div>
+                  <div className={cn('p-1.5 rounded flex-shrink-0', config.bg)}>
+                    <StatusIcon className={cn('w-4 h-4', config.color)} />
+                  </div>
+                  <span className="font-medium flex-1 min-w-0 truncate">{milestone.title}</span>
+                  {milestone.archived === 1 && (
+                    <span className="px-2 py-0.5 text-xs bg-muted rounded flex-shrink-0">Archived</span>
+                  )}
+                </div>
+
+                {/* Description - full width */}
+                {milestone.description && (
+                  <p className="text-sm text-muted-foreground mb-3 pl-9">{milestone.description}</p>
+                )}
+
+                {/* Actions row */}
+                <div className="flex items-center gap-2 pl-9">
+                  <select
+                    value={milestone.status}
+                    onChange={(e) => handleStatusChange(milestone.id, e.target.value)}
+                    className="px-2 py-1 text-xs bg-input border border-border rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                  </select>
+
+                  <div className="flex-1" />
+
+                  <button
+                    onClick={() => handleArchive(milestone.id, milestone.archived !== 1)}
+                    className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                    title={milestone.archived === 1 ? 'Unarchive' : 'Archive'}
+                  >
+                    {milestone.archived === 1 ? (
+                      <ArchiveRestore className="w-4 h-4" />
+                    ) : (
+                      <Archive className="w-4 h-4" />
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => handleDelete(milestone.id)}
+                    className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             );

@@ -1,0 +1,23 @@
+{
+  "name": "@coding-agent/web-extractor",
+  "version": "1.0.0",
+  "description": "MCP server for extracting elements from websites",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "playwright": "^1.49.0",
+    "cheerio": "^1.0.0",
+    "postcss": "^8.4.49",
+    "css-tree": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.2"
+  }
+}

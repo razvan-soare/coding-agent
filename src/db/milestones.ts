@@ -30,11 +30,12 @@ export function getMilestone(id: string): Milestone | null {
   return db.prepare('SELECT * FROM milestones WHERE id = ?').get(id) as Milestone | null;
 }
 
-export function getMilestonesByProject(projectId: string): Milestone[] {
+export function getMilestonesByProject(projectId: string, includeArchived = false): Milestone[] {
   const db = getDb();
-  return db.prepare(
-    'SELECT * FROM milestones WHERE project_id = ? ORDER BY order_index ASC'
-  ).all(projectId) as Milestone[];
+  const query = includeArchived
+    ? 'SELECT * FROM milestones WHERE project_id = ? ORDER BY order_index ASC'
+    : 'SELECT * FROM milestones WHERE project_id = ? AND (archived = 0 OR archived IS NULL) ORDER BY order_index ASC';
+  return db.prepare(query).all(projectId) as Milestone[];
 }
 
 export function getCurrentMilestone(projectId: string): Milestone | null {
@@ -50,7 +51,7 @@ export function getNextPendingMilestone(projectId: string): Milestone | null {
   const db = getDb();
   return db.prepare(`
     SELECT * FROM milestones
-    WHERE project_id = ? AND status = 'pending'
+    WHERE project_id = ? AND status = 'pending' AND (archived = 0 OR archived IS NULL)
     ORDER BY order_index ASC
     LIMIT 1
   `).get(projectId) as Milestone | null;
@@ -76,4 +77,31 @@ export function deleteMilestone(id: string): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM milestones WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+export function updateMilestoneArchived(id: string, archived: boolean): Milestone | null {
+  const db = getDb();
+  db.prepare('UPDATE milestones SET archived = ? WHERE id = ?').run(archived ? 1 : 0, id);
+  return getMilestone(id);
+}
+
+export function updateMilestone(id: string, data: { title?: string; description?: string }): Milestone | null {
+  const db = getDb();
+  const updates: string[] = [];
+  const values: (string | null)[] = [];
+
+  if (data.title !== undefined) {
+    updates.push('title = ?');
+    values.push(data.title);
+  }
+  if (data.description !== undefined) {
+    updates.push('description = ?');
+    values.push(data.description);
+  }
+
+  if (updates.length === 0) return getMilestone(id);
+
+  values.push(id);
+  db.prepare(`UPDATE milestones SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  return getMilestone(id);
 }

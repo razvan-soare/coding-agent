@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { runAgent, type AgentResult } from './base-agent.js';
-import { getCompletedTasks, getFailedTasks, getCurrentMilestone, getEssentialKnowledge, getRelevantKnowledge, formatKnowledgeForPrompt, type Project, type Milestone, type Task } from '../db/index.js';
+import { getCompletedTasks, getFailedTasks, getCurrentMilestone, getNextPendingMilestone, updateMilestoneStatus, updateProject, getEssentialKnowledge, getRelevantKnowledge, formatKnowledgeForPrompt, type Project, type Milestone, type Task } from '../db/index.js';
 
 export interface PlannerOutput {
   title: string;
@@ -214,10 +214,25 @@ export async function runPlanner(options: {
     };
   }
 
-  // Get current milestone and task history
-  const milestone = getCurrentMilestone(project.id);
-  const completedTasks = getCompletedTasks(project.id);
-  const failedTasks = getFailedTasks(project.id);
+  // Get current milestone - fallback to next pending milestone if none set
+  let milestone = getCurrentMilestone(project.id);
+
+  if (!milestone) {
+    // No current milestone set - find the next pending one
+    milestone = getNextPendingMilestone(project.id);
+
+    if (milestone) {
+      // Auto-set this as the current milestone
+      console.log(`[Planner] Auto-selecting milestone: ${milestone.title}`);
+      updateProject(project.id, { current_milestone_id: milestone.id });
+      updateMilestoneStatus(milestone.id, 'in_progress');
+    }
+  }
+
+  // Get tasks only for the current milestone (keeps prompt short)
+  const milestoneId = milestone?.id;
+  const completedTasks = getCompletedTasks(project.id, milestoneId);
+  const failedTasks = getFailedTasks(project.id, milestoneId);
 
   // Get relevant knowledge for planning (only if enabled)
   let knowledgeContext = '';

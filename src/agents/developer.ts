@@ -1,5 +1,6 @@
 import { runAgent, type AgentResult } from './base-agent.js';
 import { getRelevantKnowledge, formatKnowledgeForPrompt, markKnowledgeUsed, type Task, type Project } from '../db/index.js';
+import { detectWebReferences, generateWebExtractionPrompt } from '../utils/url-detector.js';
 
 export interface DeveloperResult extends AgentResult {
   // Developer agent just implements, success is based on exit code
@@ -13,12 +14,18 @@ export interface RetryContext {
   reviewerFeedback?: string;
 }
 
-function buildDeveloperPrompt(task: Task, knowledgeContext: string, retryContext?: RetryContext): string {
+function buildDeveloperPrompt(task: Task, knowledgeContext: string, webExtractionPrompt: string, retryContext?: RetryContext): string {
   const knowledgeSection = knowledgeContext
     ? `
 [Project Knowledge]
 Keep these patterns and gotchas in mind while implementing:
 ${knowledgeContext}
+`
+    : '';
+
+  const webSection = webExtractionPrompt
+    ? `
+${webExtractionPrompt}
 `
     : '';
 
@@ -28,8 +35,7 @@ Title: ${task.title}
 
 Description:
 ${task.description}
-${knowledgeSection}
-[Instructions]
+${knowledgeSection}${webSection}[Instructions]
 1. Implement this task completely
 2. Write clean, well-structured code
 3. Follow existing code patterns in the project
@@ -106,7 +112,17 @@ export async function runDeveloper(options: {
     knowledgeContext = formatKnowledgeForPrompt(relevantKnowledge);
   }
 
-  const prompt = buildDeveloperPrompt(task, knowledgeContext, retryContext);
+  // Detect web references in task description for extraction tasks
+  const webReferences = detectWebReferences(`${task.title} ${task.description}`);
+  const webExtractionPrompt = webReferences.length > 0
+    ? generateWebExtractionPrompt(webReferences)
+    : '';
+
+  if (webReferences.length > 0) {
+    console.log(`[Developer] Detected ${webReferences.length} web reference(s) - enabling extraction tools`);
+  }
+
+  const prompt = buildDeveloperPrompt(task, knowledgeContext, webExtractionPrompt, retryContext);
 
   const result = await runAgent({
     runId,

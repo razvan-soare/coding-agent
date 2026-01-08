@@ -44,9 +44,6 @@ export function startCronJob(projectId: string, schedule: string): boolean {
 
   const task = cron.schedule(schedule, async () => {
     await triggerCronRun(projectId);
-  }, {
-    scheduled: true,
-    timezone: 'UTC',
   });
 
   scheduledJobs.set(projectId, task);

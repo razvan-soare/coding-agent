@@ -69,13 +69,16 @@ export interface Log {
   timestamp: string;
 }
 
+export type MilestoneStatus = 'pending' | 'in_progress' | 'completed';
+
 export interface Milestone {
   id: string;
   project_id: string;
   title: string;
   description: string | null;
   order_index: number;
-  status: 'pending' | 'in_progress' | 'completed';
+  status: MilestoneStatus;
+  archived: number; // 0 = active, 1 = archived
   created_at: string;
 }
 
@@ -340,5 +343,89 @@ export function updateKnowledge(
 export function deleteKnowledge(id: string): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM knowledge WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+// Milestone operations
+export function getMilestonesByProject(projectId: string, includeArchived = false): Milestone[] {
+  const db = getDb();
+  const query = includeArchived
+    ? 'SELECT * FROM milestones WHERE project_id = ? ORDER BY order_index ASC'
+    : 'SELECT * FROM milestones WHERE project_id = ? AND (archived = 0 OR archived IS NULL) ORDER BY order_index ASC';
+  return db.prepare(query).all(projectId) as Milestone[];
+}
+
+export function getMilestone(id: string): Milestone | null {
+  const db = getDb();
+  return db.prepare('SELECT * FROM milestones WHERE id = ?').get(id) as Milestone | null;
+}
+
+export function createMilestone(data: {
+  project_id: string;
+  title: string;
+  description?: string;
+}): Milestone {
+  const db = getDb();
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  const maxOrder = db.prepare(
+    'SELECT MAX(order_index) as max FROM milestones WHERE project_id = ?'
+  ).get(data.project_id) as { max: number | null };
+
+  const orderIndex = (maxOrder.max ?? -1) + 1;
+
+  db.prepare(`
+    INSERT INTO milestones (id, project_id, title, description, order_index, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, data.project_id, data.title, data.description ?? null, orderIndex, now);
+
+  return getMilestone(id)!;
+}
+
+export function updateMilestone(
+  id: string,
+  data: Partial<{
+    title: string;
+    description: string | null;
+    status: MilestoneStatus;
+    archived: number;
+  }>
+): Milestone | null {
+  const db = getDb();
+  const existing = getMilestone(id);
+  if (!existing) return null;
+
+  const updates: string[] = [];
+  const params: (string | number | null)[] = [];
+
+  if (data.title !== undefined) {
+    updates.push('title = ?');
+    params.push(data.title);
+  }
+  if (data.description !== undefined) {
+    updates.push('description = ?');
+    params.push(data.description);
+  }
+  if (data.status !== undefined) {
+    updates.push('status = ?');
+    params.push(data.status);
+  }
+  if (data.archived !== undefined) {
+    updates.push('archived = ?');
+    params.push(data.archived);
+  }
+
+  if (updates.length === 0) return existing;
+
+  params.push(id);
+  db.prepare(`UPDATE milestones SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+  return getMilestone(id);
+}
+
+export function deleteMilestone(id: string): boolean {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM milestones WHERE id = ?').run(id);
   return result.changes > 0;
 }

@@ -20,6 +20,7 @@ export interface Milestone {
   description: string | null;
   order_index: number;
   status: MilestoneStatus;
+  archived: number; // 0 = active, 1 = archived
   created_at: string;
 }
 

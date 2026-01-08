@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "web-extractor": {
+      "command": "node",
+      "args": ["./mcp-servers/web-extractor/dist/index.js"],
+      "env": {}
+    }
+  }
+}

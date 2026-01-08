@@ -38,6 +38,12 @@ function runMigrations(): void {
   if (!columnExists('runs', 'trigger_source')) {
     db.exec(`ALTER TABLE runs ADD COLUMN trigger_source TEXT NOT NULL DEFAULT 'cli'`);
   }
+
+  // Migration: Add archived column to milestones table
+  if (!columnExists('milestones', 'archived')) {
+    db.exec(`ALTER TABLE milestones ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_milestones_archived ON milestones(archived)`);
+  }
 }
 
 export function initializeSchema(): void {

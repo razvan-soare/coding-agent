@@ -56,17 +56,28 @@ export function getNextPendingTask(projectId: string): Task | null {
   `).get(projectId) as Task | null;
 }
 
-export function getCompletedTasks(projectId: string): Task[] {
+export function getCompletedTasks(projectId: string, milestoneId?: string): Task[] {
   const db = getDb();
+  if (milestoneId) {
+    return db.prepare(
+      "SELECT * FROM tasks WHERE project_id = ? AND milestone_id = ? AND status = 'completed' ORDER BY updated_at ASC"
+    ).all(projectId, milestoneId) as Task[];
+  }
+  // If no milestone, return last 10 completed tasks to keep prompt short
   return db.prepare(
-    "SELECT * FROM tasks WHERE project_id = ? AND status = 'completed' ORDER BY updated_at ASC"
+    "SELECT * FROM tasks WHERE project_id = ? AND status = 'completed' ORDER BY updated_at DESC LIMIT 10"
   ).all(projectId) as Task[];
 }
 
-export function getFailedTasks(projectId: string): Task[] {
+export function getFailedTasks(projectId: string, milestoneId?: string): Task[] {
   const db = getDb();
+  if (milestoneId) {
+    return db.prepare(
+      "SELECT * FROM tasks WHERE project_id = ? AND milestone_id = ? AND status = 'failed' ORDER BY updated_at ASC"
+    ).all(projectId, milestoneId) as Task[];
+  }
   return db.prepare(
-    "SELECT * FROM tasks WHERE project_id = ? AND status = 'failed' ORDER BY updated_at ASC"
+    "SELECT * FROM tasks WHERE project_id = ? AND status = 'failed' ORDER BY updated_at DESC LIMIT 5"
   ).all(projectId) as Task[];
 }
 
