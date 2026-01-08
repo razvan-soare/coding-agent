@@ -7,6 +7,10 @@ export interface PlannerOutput {
   description: string;
 }
 
+export interface MilestonePlannerOutput {
+  tasks: PlannerOutput[];
+}
+
 export interface PlannerResult extends AgentResult {
   task: PlannerOutput | null;
   milestoneComplete: boolean;
@@ -403,4 +407,169 @@ export async function runPlannerRecovery(options: {
       skipTask: false,
     };
   }
+}
+
+// ============================================
+// Milestone Breakdown Planner
+// ============================================
+
+function buildMilestonePlannerPrompt(
+  overviewContent: string,
+  milestone: Milestone,
+  knowledgeContext: string
+): string {
+  const knowledgeSection = knowledgeContext
+    ? `[Project Knowledge]\nThese are important patterns, decisions, and gotchas for this project:\n${knowledgeContext}\n`
+    : '';
+
+  return `You are a technical project planner. Your job is to break down a milestone into detailed, actionable tasks that a developer can execute one by one.
+
+${overviewContent}
+
+[Milestone to Break Down]
+Title: ${milestone.title}
+Description:
+${milestone.description || 'No specific description provided'}
+
+${knowledgeSection}[Instructions]
+Break down this milestone into a sequence of detailed tasks. Each task should:
+
+1. Be SPECIFIC and ACTIONABLE - a developer should be able to pick up a task and start working immediately
+2. Be SELF-CONTAINED - each task should produce a working, testable increment
+3. Include ACCEPTANCE CRITERIA - describe what "done" looks like
+4. Be ORDERED LOGICALLY - dependencies should come first
+5. Be DETAILED ENOUGH for easy implementation but focused on WHAT, not HOW
+
+IMPORTANT GUIDELINES:
+- Create 3-10 tasks depending on milestone complexity
+- Each task should be completable in a single development session
+- Tasks should build on each other - earlier tasks create foundation for later ones
+- Include setup tasks if needed (dependencies, configuration, etc.)
+- Include tasks for testing/verification where appropriate
+- Focus on WHAT needs to be done, not HOW to implement it
+- Do NOT include code snippets or implementation details
+
+TASK FORMAT:
+Each task should have:
+- title: A short, descriptive title (5-10 words)
+- description: A clear description including:
+  - What feature/behavior to implement
+  - What the expected outcome should be
+  - Any specific requirements (UI, accessibility, etc.)
+  - How to verify the task is complete
+
+Output ONLY a JSON object (no markdown, no explanation):
+{
+  "tasks": [
+    {
+      "title": "First task title",
+      "description": "Detailed description of what to build and how to verify it's complete"
+    },
+    {
+      "title": "Second task title",
+      "description": "Detailed description..."
+    }
+  ]
+}
+
+Make the tasks detailed enough that if something goes wrong, we can easily identify which task failed and backtrack.`;
+}
+
+function parseTasksFromOutput(output: string): PlannerOutput[] {
+  try {
+    const jsonStr = extractJsonFromOutput(output);
+    if (!jsonStr) {
+      return [];
+    }
+
+    const parsed = JSON.parse(jsonStr);
+
+    if (Array.isArray(parsed.tasks)) {
+      return parsed.tasks
+        .filter((t: unknown) => {
+          const task = t as Record<string, unknown>;
+          return task && typeof task.title === 'string' && typeof task.description === 'string';
+        })
+        .map((t: unknown) => {
+          const task = t as Record<string, string>;
+          return {
+            title: task.title,
+            description: task.description,
+          };
+        });
+    }
+
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export interface MilestonePlannerResult extends AgentResult {
+  tasks: PlannerOutput[];
+}
+
+export async function runMilestonePlanner(options: {
+  runId: string;
+  project: Project;
+  milestone: Milestone;
+}): Promise<MilestonePlannerResult> {
+  const { runId, project, milestone } = options;
+
+  // Read project overview
+  let overviewContent: string;
+  try {
+    overviewContent = readFileSync(project.overview_path, 'utf-8');
+  } catch (error) {
+    return {
+      success: false,
+      output: `Failed to read project overview: ${error}`,
+      duration: 0,
+      timedOut: false,
+      tasks: [],
+    };
+  }
+
+  // Get relevant knowledge for planning (only if enabled)
+  let knowledgeContext = '';
+  if (project.use_knowledge) {
+    const essentialKnowledge = getEssentialKnowledge(project.id, 5);
+    const relevantKnowledge = getRelevantKnowledge(project.id, {
+      categories: ['decision', 'preference', 'gotcha'],
+      limit: 5,
+    });
+
+    // Combine and dedupe knowledge
+    const allKnowledge = [...essentialKnowledge];
+    for (const k of relevantKnowledge) {
+      if (!allKnowledge.some(e => e.id === k.id)) {
+        allKnowledge.push(k);
+      }
+    }
+    knowledgeContext = formatKnowledgeForPrompt(allKnowledge.slice(0, 8));
+  }
+
+  const prompt = buildMilestonePlannerPrompt(overviewContent, milestone, knowledgeContext);
+
+  console.log(`[MilestonePlanner] Breaking down milestone: ${milestone.title}`);
+
+  const result = await runAgent({
+    runId,
+    prompt,
+    cwd: project.path,
+    agentType: 'planner',
+  });
+
+  const tasks = parseTasksFromOutput(result.output);
+
+  if (tasks.length === 0) {
+    console.warn('[MilestonePlanner] No tasks extracted from output');
+  } else {
+    console.log(`[MilestonePlanner] Generated ${tasks.length} tasks for milestone`);
+  }
+
+  return {
+    ...result,
+    tasks,
+  };
 }

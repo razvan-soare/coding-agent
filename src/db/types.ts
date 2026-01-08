@@ -36,6 +36,7 @@ export interface Task {
   retry_count: number;
   priority: number;
   is_injected: number;
+  order_index: number; // ordering within milestone (0-based)
   comments: string | null;
   created_at: string;
   updated_at: string;

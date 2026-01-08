@@ -1,10 +1,12 @@
 import {
   createRun,
   createTask,
+  createTasksForMilestone,
   finishRun,
   getNextPendingTask,
   getProject,
   getTask,
+  getTasksByMilestone,
   incrementTaskRetry,
   logAgentError,
   logAgentStart,
@@ -14,14 +16,17 @@ import {
   addTaskComment,
   getCurrentMilestone,
   getNextMilestone,
+  getNextPendingMilestone,
   updateMilestoneStatus,
   updateProject,
+  hasPendingMilestoneTasks,
+  getMilestoneTaskStats,
   type Project,
   type Run,
   type Task,
   type TriggerSource,
 } from './db/index.js';
-import { runPlanner, runPlannerRecovery, type FailedTaskContext } from './agents/planner.js';
+import { runPlanner, runPlannerRecovery, runMilestonePlanner, type FailedTaskContext } from './agents/planner.js';
 import { runDeveloper, type RetryContext } from './agents/developer.js';
 import { runReviewer, formatReviewFeedback } from './agents/reviewer.js';
 import { extractKnowledge } from './agents/knowledge-extractor.js';
@@ -37,17 +42,142 @@ export interface OrchestratorResult {
   summary: string;
 }
 
+/**
+ * Break down a milestone into tasks using the milestone planner.
+ * Returns the created tasks or null if planning failed.
+ */
+async function planMilestoneTasks(
+  run: Run,
+  project: Project,
+  milestoneId: string
+): Promise<Task[] | null> {
+  const milestone = getCurrentMilestone(project.id);
+  if (!milestone || milestone.id !== milestoneId) {
+    console.error('Milestone not found or mismatch');
+    return null;
+  }
+
+  console.log(`\n📋 Breaking down milestone: ${milestone.title}`);
+
+  const plannerResult = await runMilestonePlanner({
+    runId: run.id,
+    project,
+    milestone,
+  });
+
+  if (!plannerResult.success) {
+    console.error('Milestone planner failed:', plannerResult.output.slice(0, 200));
+    return null;
+  }
+
+  if (plannerResult.tasks.length === 0) {
+    console.error('Milestone planner did not return any tasks');
+    return null;
+  }
+
+  // Create all tasks for the milestone
+  const tasks = createTasksForMilestone({
+    project_id: project.id,
+    milestone_id: milestoneId,
+    tasks: plannerResult.tasks,
+  });
+
+  console.log(`✅ Created ${tasks.length} tasks for milestone:`);
+  tasks.forEach((t, i) => console.log(`   ${i + 1}. ${t.title}`));
+
+  return tasks;
+}
+
+/**
+ * Check if milestone is complete and advance to next one if needed.
+ * Returns the next milestone ID or null if all milestones are done.
+ */
+function checkAndAdvanceMilestone(project: Project): string | null {
+  const currentMilestone = getCurrentMilestone(project.id);
+
+  if (!currentMilestone) {
+    // No current milestone - try to get the next pending one
+    const nextMilestone = getNextPendingMilestone(project.id);
+    if (nextMilestone) {
+      console.log(`📋 Starting milestone: ${nextMilestone.title}`);
+      updateProject(project.id, { current_milestone_id: nextMilestone.id });
+      updateMilestoneStatus(nextMilestone.id, 'in_progress');
+      return nextMilestone.id;
+    }
+    return null;
+  }
+
+  // Check if current milestone has pending tasks
+  if (hasPendingMilestoneTasks(currentMilestone.id)) {
+    // Still has work to do
+    return currentMilestone.id;
+  }
+
+  // No pending tasks - check if milestone is complete
+  const stats = getMilestoneTaskStats(currentMilestone.id);
+
+  if (stats.total === 0) {
+    // Milestone has no tasks yet - needs planning
+    return currentMilestone.id;
+  }
+
+  // Milestone has tasks but none are pending - it's complete (or all failed)
+  if (stats.completed > 0 || stats.failed === stats.total) {
+    console.log(`✅ Milestone complete: ${currentMilestone.title}`);
+    console.log(`   Stats: ${stats.completed} completed, ${stats.failed} failed`);
+    updateMilestoneStatus(currentMilestone.id, 'completed');
+
+    // Advance to next milestone
+    const nextMilestone = getNextMilestone(project.id, currentMilestone.order_index);
+
+    if (nextMilestone) {
+      console.log(`📋 Advancing to milestone: ${nextMilestone.title}`);
+      updateProject(project.id, { current_milestone_id: nextMilestone.id });
+      updateMilestoneStatus(nextMilestone.id, 'in_progress');
+      return nextMilestone.id;
+    }
+
+    console.log('🎉 All milestones complete! Project finished.');
+    updateProject(project.id, { current_milestone_id: null });
+    return null;
+  }
+
+  return currentMilestone.id;
+}
+
 async function getOrCreateTask(run: Run, project: Project): Promise<Task | null> {
-  // First, check for pending tasks
-  let task = getNextPendingTask(project.id);
+  // Check and potentially advance to next milestone
+  const milestoneId = checkAndAdvanceMilestone(project);
+
+  // Check for pending tasks (respecting milestone ordering)
+  let task = getNextPendingTask(project.id, milestoneId ?? undefined);
 
   if (task) {
     updateRunTask(run.id, task.id);
     return task;
   }
 
-  // No pending tasks, run the planner
-  console.log('No pending tasks. Running planner to generate new task...');
+  // No pending tasks - if we have a milestone, it might need planning
+  if (milestoneId) {
+    const milestoneTasks = getTasksByMilestone(milestoneId);
+
+    if (milestoneTasks.length === 0) {
+      // Milestone has no tasks - run the milestone planner to break it down
+      const tasks = await planMilestoneTasks(run, project, milestoneId);
+
+      if (tasks && tasks.length > 0) {
+        // Return the first task
+        updateRunTask(run.id, tasks[0].id);
+        return tasks[0];
+      }
+
+      // Planning failed - fall back to regular planner for a single task
+      console.log('Milestone planning failed, falling back to single-task planner...');
+    }
+  }
+
+  // Fall back to regular planner (for cases without milestones or fallback)
+  console.log('Running planner for next task...');
 
   const plannerResult = await runPlanner({
     runId: run.id,
@@ -59,46 +189,15 @@ async function getOrCreateTask(run: Run, project: Project): Promise<Task | null>
     return null;
   }
 
+  // If planner says milestone is complete but we have no tasks, something is wrong
   if (plannerResult.milestoneComplete) {
-    // Milestone is complete - advance to next milestone
-    const currentMilestone = getCurrentMilestone(project.id);
-
-    if (currentMilestone) {
-      console.log(`✅ Milestone complete: ${currentMilestone.title}`);
-      updateMilestoneStatus(currentMilestone.id, 'completed');
-
-      // Get next milestone
-      const nextMilestone = getNextMilestone(project.id, currentMilestone.order_index);
-
-      if (nextMilestone) {
-        console.log(`📋 Advancing to next milestone: ${nextMilestone.title}`);
-        updateProject(project.id, { current_milestone_id: nextMilestone.id });
-        updateMilestoneStatus(nextMilestone.id, 'in_progress');
-
-        // Run planner again for the new milestone
-        const nextPlannerResult = await runPlanner({
-          runId: run.id,
-          project: { ...project, current_milestone_id: nextMilestone.id },
-        });
-
-        if (nextPlannerResult.success && nextPlannerResult.task) {
-          task = createTask({
-            project_id: project.id,
-            milestone_id: nextMilestone.id,
-            title: nextPlannerResult.task.title,
-            description: nextPlannerResult.task.description,
-          });
-
-          console.log(`Created task: ${task.title}`);
-          updateRunTask(run.id, task.id);
-          return task;
-        }
-      } else {
-        console.log('🎉 All milestones complete! Project finished.');
-        return null;
-      }
+    console.log('Planner indicates milestone complete - checking next milestone');
+    // This shouldn't happen with the new flow, but handle it gracefully
+    const newMilestoneId = checkAndAdvanceMilestone(project);
+    if (newMilestoneId && newMilestoneId !== milestoneId) {
+      // Recursively try to get a task for the new milestone
+      return getOrCreateTask(run, project);
     }
-
     return null;
   }
 
@@ -107,7 +206,7 @@ async function getOrCreateTask(run: Run, project: Project): Promise<Task | null>
     return null;
   }
 
-  // Create the new task
+  // Create a single task
   const currentMilestone = getCurrentMilestone(project.id);
   task = createTask({
     project_id: project.id,

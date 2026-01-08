@@ -44,6 +44,12 @@ function runMigrations(): void {
     db.exec(`ALTER TABLE milestones ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_milestones_archived ON milestones(archived)`);
   }
+
+  // Migration: Add order_index column to tasks table (for ordering within milestone)
+  if (!columnExists('tasks', 'order_index')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_order ON tasks(milestone_id, order_index)`);
+  }
 }
 
 export function initializeSchema(): void {
