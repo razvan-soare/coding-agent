@@ -16,6 +16,8 @@ export function getDb(): Database.Database {
 }
 
 // Types matching the main project
+export type ImportMode = 'in_place' | 'reference';
+
 export interface Project {
   id: string;
   name: string;
@@ -25,6 +27,9 @@ export interface Project {
   use_knowledge: number; // 1 = enabled, 0 = disabled
   cron_enabled: number; // 1 = enabled, 0 = disabled
   cron_schedule: string; // cron expression, default '0 */3 * * *'
+  import_mode: ImportMode | null; // 'in_place' = work on existing repo, 'reference' = use as reference
+  reference_path: string | null; // path to reference repo (for 'reference' mode)
+  repository_url: string | null; // original GitHub URL if cloned
   created_at: string;
   updated_at: string;
 }
@@ -428,4 +433,46 @@ export function deleteMilestone(id: string): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM milestones WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+// Create project operation
+export function createProject(data: {
+  name: string;
+  path: string;
+  overview_path: string;
+  use_knowledge?: number;
+  cron_enabled?: number;
+  cron_schedule?: string;
+  import_mode?: ImportMode | null;
+  reference_path?: string | null;
+  repository_url?: string | null;
+}): Project {
+  const db = getDb();
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO projects (id, name, path, overview_path, use_knowledge, cron_enabled, cron_schedule, import_mode, reference_path, repository_url, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    data.name,
+    data.path,
+    data.overview_path,
+    data.use_knowledge ?? 0,
+    data.cron_enabled ?? 0,
+    data.cron_schedule ?? '0 */3 * * *',
+    data.import_mode ?? null,
+    data.reference_path ?? null,
+    data.repository_url ?? null,
+    now,
+    now
+  );
+
+  return getProject(id)!;
+}
+
+export function getProjectByPath(path: string): Project | null {
+  const db = getDb();
+  return db.prepare('SELECT * FROM projects WHERE path = ?').get(path) as Project | null;
 }

@@ -14,7 +14,37 @@ export interface RetryContext {
   reviewerFeedback?: string;
 }
 
-function buildDeveloperPrompt(task: Task, knowledgeContext: string, webExtractionPrompt: string, retryContext?: RetryContext): string {
+function buildRepositoryInstructions(project: Project): string {
+  if (!project.import_mode) {
+    return '';
+  }
+
+  if (project.import_mode === 'in_place') {
+    return `
+[Working with Existing Codebase]
+This is an EXISTING repository. Before making changes:
+1. Explore the existing file structure to understand what's already there
+2. Match the existing code style and patterns
+3. Be cautious with breaking changes to existing functionality
+4. Build upon existing work rather than rewriting from scratch
+`;
+  } else if (project.import_mode === 'reference' && project.reference_path) {
+    return `
+[Reference Repository Available]
+A reference codebase is available at: ${project.reference_path}
+
+You can read files from this reference repository to understand patterns and implementation approaches:
+- Use the Read tool to explore reference code when needed
+- Look for similar implementations in the reference
+- Adapt and learn from the patterns - don't copy blindly
+- This is a NEW project, so build fresh but informed by the reference
+`;
+  }
+
+  return '';
+}
+
+function buildDeveloperPrompt(task: Task, knowledgeContext: string, webExtractionPrompt: string, project: Project, retryContext?: RetryContext): string {
   const knowledgeSection = knowledgeContext
     ? `
 [Project Knowledge]
@@ -29,13 +59,15 @@ ${webExtractionPrompt}
 `
     : '';
 
+  const repositoryInstructions = buildRepositoryInstructions(project);
+
   let prompt = `You are a software developer implementing a feature. Here is your task:
 
 Title: ${task.title}
 
 Description:
 ${task.description}
-${knowledgeSection}${webSection}[Instructions]
+${repositoryInstructions}${knowledgeSection}${webSection}[Instructions]
 1. Implement this task completely
 2. Write clean, well-structured code
 3. Follow existing code patterns in the project
@@ -122,7 +154,7 @@ export async function runDeveloper(options: {
     console.log(`[Developer] Detected ${webReferences.length} web reference(s) - enabling extraction tools`);
   }
 
-  const prompt = buildDeveloperPrompt(task, knowledgeContext, webExtractionPrompt, retryContext);
+  const prompt = buildDeveloperPrompt(task, knowledgeContext, webExtractionPrompt, project, retryContext);
 
   const result = await runAgent({
     runId,

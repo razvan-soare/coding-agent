@@ -1,12 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useProjects } from '@/lib/hooks/useProjects';
 import { formatDate } from '@/lib/utils';
-import { Folder, CheckCircle, Clock, AlertCircle, XCircle, Play } from 'lucide-react';
+import { Folder, CheckCircle, Clock, AlertCircle, XCircle, Play, Plus } from 'lucide-react';
+import CreateProjectDialog from '@/components/CreateProjectDialog';
 
 export default function Dashboard() {
   const { data: projects, isLoading, error } = useProjects();
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   // Show skeleton while loading, but don't block if we have cached data
   const showSkeleton = isLoading && !projects;
@@ -22,7 +25,21 @@ export default function Dashboard() {
 
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-bold mb-8">Coding Agent Dashboard</h1>
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-2xl font-bold">Coding Agent Dashboard</h1>
+        <button
+          onClick={() => setShowCreateDialog(true)}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          Add Project
+        </button>
+      </div>
+
+      <CreateProjectDialog
+        isOpen={showCreateDialog}
+        onClose={() => setShowCreateDialog(false)}
+      />
 
       {showSkeleton ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -39,11 +56,19 @@ export default function Dashboard() {
           ))}
         </div>
       ) : projects?.length === 0 ? (
-        <div className="text-muted-foreground">
-          No projects found. Use the CLI to initialize a project:
-          <pre className="mt-2 p-4 bg-card rounded-lg text-sm">
-            npx tsx src/index.ts init &lt;project-path&gt;
-          </pre>
+        <div className="text-center py-12">
+          <Folder className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+          <h3 className="text-lg font-medium mb-2">No projects yet</h3>
+          <p className="text-muted-foreground mb-6">
+            Create your first project to get started.
+          </p>
+          <button
+            onClick={() => setShowCreateDialog(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Create Project
+          </button>
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

@@ -1,3 +1,5 @@
+export type ImportMode = 'in_place' | 'reference';
+
 export interface Project {
   id: string;
   name: string;
@@ -7,6 +9,9 @@ export interface Project {
   use_knowledge: number; // 1 = enabled, 0 = disabled
   cron_enabled: number; // 1 = enabled, 0 = disabled
   cron_schedule: string; // cron expression, default '0 */3 * * *' (every 3 hours)
+  import_mode: ImportMode | null; // 'in_place' = work on existing repo, 'reference' = use as reference
+  reference_path: string | null; // path to reference repo (for 'reference' mode)
+  repository_url: string | null; // original GitHub URL if cloned
   created_at: string;
   updated_at: string;
 }

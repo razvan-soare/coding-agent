@@ -50,6 +50,21 @@ function runMigrations(): void {
     db.exec(`ALTER TABLE tasks ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_order ON tasks(milestone_id, order_index)`);
   }
+
+  // Migration: Add import_mode column to projects table ('in_place' | 'reference' | null)
+  if (!columnExists('projects', 'import_mode')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN import_mode TEXT`);
+  }
+
+  // Migration: Add reference_path column to projects table (path to reference repo)
+  if (!columnExists('projects', 'reference_path')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN reference_path TEXT`);
+  }
+
+  // Migration: Add repository_url column to projects table (original GitHub URL if cloned)
+  if (!columnExists('projects', 'repository_url')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN repository_url TEXT`);
+  }
 }
 
 export function initializeSchema(): void {

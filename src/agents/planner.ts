@@ -38,12 +38,49 @@ function formatFailedTask(task: Task, index: number): string {
   return result;
 }
 
+function buildRepositoryContext(project: Project): string {
+  if (!project.import_mode) {
+    return '';
+  }
+
+  if (project.import_mode === 'in_place') {
+    return `[Repository Context]
+This is an IMPORTED repository being worked on IN PLACE.
+Original Repository: ${project.repository_url || project.path}
+
+IMPORTANT: You are working with an EXISTING codebase. Before suggesting tasks:
+- Explore the existing file structure to understand what's already there
+- Respect existing patterns, naming conventions, and architecture
+- Tasks should build upon existing work, not rewrite from scratch
+- Be cautious with breaking changes to existing functionality
+- Consider backward compatibility when making changes
+
+`;
+  } else if (project.import_mode === 'reference' && project.reference_path) {
+    return `[Repository Context]
+This is a NEW project with a REFERENCE repository available.
+Reference Repository: ${project.reference_path}
+Original Source: ${project.repository_url || project.reference_path}
+
+IMPORTANT: You have READ access to a reference codebase at the path above.
+- The developer can read files from the reference to understand patterns
+- Suggest exploring specific reference files when relevant
+- Adapt patterns from the reference - don't copy blindly
+- This is a NEW project, so build fresh but informed by the reference
+
+`;
+  }
+
+  return '';
+}
+
 function buildPlannerPrompt(
   overviewContent: string,
   milestone: Milestone | null,
   completedTasks: Task[],
   failedTasks: Task[],
-  knowledgeContext: string
+  knowledgeContext: string,
+  project: Project
 ): string {
   const completedTasksList = completedTasks.length > 0
     ? completedTasks.map((t, i) => `${i + 1}. [DONE] ${t.title}`).join('\n')
@@ -70,9 +107,11 @@ IMPORTANT: The milestone is ONLY complete when ALL requirements listed above hav
     ? `[Project Knowledge]\nThese are important patterns, decisions, and gotchas for this project:\n${knowledgeContext}\n`
     : '';
 
+  const repositoryContext = buildRepositoryContext(project);
+
   return `You are a technical project planner. Given the project overview and completed work, generate the next task that needs implementation.
 
-${overviewContent}
+${repositoryContext}${overviewContent}
 
 ${milestoneSection}
 
@@ -257,7 +296,7 @@ export async function runPlanner(options: {
     knowledgeContext = formatKnowledgeForPrompt(allKnowledge.slice(0, 8));
   }
 
-  const prompt = buildPlannerPrompt(overviewContent, milestone, completedTasks, failedTasks, knowledgeContext);
+  const prompt = buildPlannerPrompt(overviewContent, milestone, completedTasks, failedTasks, knowledgeContext, project);
 
   const result = await runAgent({
     runId,
