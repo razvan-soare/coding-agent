@@ -12,6 +12,8 @@ export interface Project {
   import_mode: ImportMode | null; // 'in_place' = work on existing repo, 'reference' = use as reference
   reference_path: string | null; // path to reference repo (for 'reference' mode)
   repository_url: string | null; // original GitHub URL if cloned
+  git_author_name: string | null; // custom commit author name
+  git_author_email: string | null; // custom commit author email
   created_at: string;
   updated_at: string;
 }

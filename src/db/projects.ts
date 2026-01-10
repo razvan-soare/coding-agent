@@ -34,7 +34,7 @@ export function getAllProjects(): Project[] {
   return db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all() as Project[];
 }
 
-export function updateProject(id: string, data: Partial<Pick<Project, 'name' | 'current_milestone_id' | 'use_knowledge' | 'cron_enabled' | 'cron_schedule'>>): Project | null {
+export function updateProject(id: string, data: Partial<Pick<Project, 'name' | 'current_milestone_id' | 'use_knowledge' | 'cron_enabled' | 'cron_schedule' | 'repository_url' | 'git_author_name' | 'git_author_email'>>): Project | null {
   const db = getDb();
   const updates: string[] = [];
   const values: unknown[] = [];
@@ -58,6 +58,18 @@ export function updateProject(id: string, data: Partial<Pick<Project, 'name' | '
   if (data.cron_schedule !== undefined) {
     updates.push('cron_schedule = ?');
     values.push(data.cron_schedule);
+  }
+  if (data.repository_url !== undefined) {
+    updates.push('repository_url = ?');
+    values.push(data.repository_url);
+  }
+  if (data.git_author_name !== undefined) {
+    updates.push('git_author_name = ?');
+    values.push(data.git_author_name);
+  }
+  if (data.git_author_email !== undefined) {
+    updates.push('git_author_email = ?');
+    values.push(data.git_author_email);
   }
 
   if (updates.length === 0) return getProject(id);

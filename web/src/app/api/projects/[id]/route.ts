@@ -54,6 +54,15 @@ export async function PATCH(
     if (body.cron_schedule !== undefined) {
       updateData.cron_schedule = body.cron_schedule;
     }
+    if (body.repository_url !== undefined) {
+      updateData.repository_url = body.repository_url;
+    }
+    if (body.git_author_name !== undefined) {
+      updateData.git_author_name = body.git_author_name;
+    }
+    if (body.git_author_email !== undefined) {
+      updateData.git_author_email = body.git_author_email;
+    }
 
     const project = updateProject(id, updateData);
 

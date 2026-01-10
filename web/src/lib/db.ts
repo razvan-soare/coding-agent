@@ -30,6 +30,8 @@ export interface Project {
   import_mode: ImportMode | null; // 'in_place' = work on existing repo, 'reference' = use as reference
   reference_path: string | null; // path to reference repo (for 'reference' mode)
   repository_url: string | null; // original GitHub URL if cloned
+  git_author_name: string | null; // custom commit author name
+  git_author_email: string | null; // custom commit author email
   created_at: string;
   updated_at: string;
 }
@@ -115,7 +117,7 @@ export function getProject(id: string): Project | null {
 
 export function updateProject(
   id: string,
-  data: Partial<Pick<Project, 'name' | 'current_milestone_id' | 'use_knowledge' | 'cron_enabled' | 'cron_schedule'>>
+  data: Partial<Pick<Project, 'name' | 'current_milestone_id' | 'use_knowledge' | 'cron_enabled' | 'cron_schedule' | 'repository_url' | 'git_author_name' | 'git_author_email'>>
 ): Project | null {
   const db = getDb();
   const updates: string[] = [];
@@ -140,6 +142,18 @@ export function updateProject(
   if (data.cron_schedule !== undefined) {
     updates.push('cron_schedule = ?');
     values.push(data.cron_schedule);
+  }
+  if (data.repository_url !== undefined) {
+    updates.push('repository_url = ?');
+    values.push(data.repository_url);
+  }
+  if (data.git_author_name !== undefined) {
+    updates.push('git_author_name = ?');
+    values.push(data.git_author_name);
+  }
+  if (data.git_author_email !== undefined) {
+    updates.push('git_author_email = ?');
+    values.push(data.git_author_email);
   }
 
   if (updates.length === 0) return getProject(id);

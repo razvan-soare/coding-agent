@@ -65,6 +65,16 @@ function runMigrations(): void {
   if (!columnExists('projects', 'repository_url')) {
     db.exec(`ALTER TABLE projects ADD COLUMN repository_url TEXT`);
   }
+
+  // Migration: Add git_author_name column to projects table (custom commit author name)
+  if (!columnExists('projects', 'git_author_name')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN git_author_name TEXT`);
+  }
+
+  // Migration: Add git_author_email column to projects table (custom commit author email)
+  if (!columnExists('projects', 'git_author_email')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN git_author_email TEXT`);
+  }
 }
 
 export function initializeSchema(): void {

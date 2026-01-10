@@ -44,8 +44,24 @@ export function stageAllChanges(cwd: string): void {
   execSync('git add -A', { cwd, encoding: 'utf-8' });
 }
 
-export function commit(cwd: string, message: string): string {
-  execSync(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd, encoding: 'utf-8' });
+export interface GitAuthor {
+  name: string;
+  email: string;
+}
+
+export function commit(cwd: string, message: string, author?: GitAuthor): string {
+  // Escape message for shell
+  const escapedMessage = message.replace(/"/g, '\\"');
+
+  if (author?.name && author?.email) {
+    // Use -c flags to set author for this commit only
+    execSync(
+      `git -c user.name="${author.name}" -c user.email="${author.email}" commit -m "${escapedMessage}"`,
+      { cwd, encoding: 'utf-8' }
+    );
+  } else {
+    execSync(`git commit -m "${escapedMessage}"`, { cwd, encoding: 'utf-8' });
+  }
   return getLatestCommitSha(cwd);
 }
 
@@ -135,4 +151,29 @@ export function getGitDiff(cwd: string): string {
   } catch {
     return '';
   }
+}
+
+export function getRemoteUrl(cwd: string, remote = 'origin'): string | null {
+  try {
+    return execSync(`git remote get-url ${remote}`, { cwd, encoding: 'utf-8' }).trim();
+  } catch {
+    return null;
+  }
+}
+
+export function setRemoteUrl(cwd: string, url: string, remote = 'origin'): void {
+  if (hasRemote(cwd, remote)) {
+    execSync(`git remote set-url ${remote} ${url}`, { cwd, encoding: 'utf-8' });
+  } else {
+    execSync(`git remote add ${remote} ${url}`, { cwd, encoding: 'utf-8' });
+  }
+}
+
+export function renameBranch(cwd: string, newName: string): void {
+  execSync(`git branch -M ${newName}`, { cwd, encoding: 'utf-8' });
+}
+
+export function pushWithUpstream(cwd: string, remote = 'origin', branch?: string): void {
+  const currentBranch = branch || getCurrentBranch(cwd);
+  execSync(`git push -u ${remote} ${currentBranch}`, { cwd, encoding: 'utf-8' });
 }

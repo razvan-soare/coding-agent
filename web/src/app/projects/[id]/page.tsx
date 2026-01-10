@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, use } from 'react';
+import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import { useProject, useToggleKnowledge, useToggleCron } from '@/lib/hooks/useProjects';
 import { useCreateTask, useDeleteTask } from '@/lib/hooks/useTasks';
@@ -41,9 +41,12 @@ import {
   ArchiveRestore,
   Sparkles,
   MessageSquare,
+  Settings,
+  Github,
+  User,
 } from 'lucide-react';
 
-type Tab = 'tasks' | 'runs' | 'knowledge' | 'milestones' | 'preview';
+type Tab = 'tasks' | 'runs' | 'knowledge' | 'milestones' | 'preview' | 'settings';
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -266,6 +269,18 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
             <span className="ml-2 w-2 h-2 rounded-full bg-yellow-400 inline-block" />
           )}
         </button>
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={cn(
+            'pb-3 px-1 text-sm font-medium transition-colors',
+            activeTab === 'settings'
+              ? 'text-primary border-b-2 border-primary'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <Settings className="w-4 h-4 inline-block mr-1" />
+          Settings
+        </button>
       </div>
 
       {/* Content */}
@@ -299,6 +314,10 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
 
       {activeTab === 'preview' && (
         <PreviewTab instance={instance} projectId={id} startInstance={startInstance} stopInstance={stopInstance} />
+      )}
+
+      {activeTab === 'settings' && (
+        <SettingsTab project={project} />
       )}
     </div>
   );
@@ -1709,6 +1728,233 @@ function MilestonesTab({ projectId }: { projectId: string }) {
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingsTab({ project }: { project: any }) {
+  const [repoUrl, setRepoUrl] = useState(project.repository_url || '');
+  const [authorName, setAuthorName] = useState(project.git_author_name || '');
+  const [authorEmail, setAuthorEmail] = useState(project.git_author_email || '');
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [repoStatus, setRepoStatus] = useState<{ connected: boolean; remoteUrl?: string; currentBranch?: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // Fetch repository status on mount
+  useEffect(() => {
+    fetch(`/api/projects/${project.id}/repository`)
+      .then(res => res.json())
+      .then(data => {
+        setRepoStatus(data);
+        if (data.remoteUrl && !project.repository_url) {
+          setRepoUrl(data.remoteUrl);
+        }
+      })
+      .catch(console.error);
+  }, [project.id, project.repository_url]);
+
+  const handleConnectRepository = async () => {
+    if (!repoUrl) return;
+
+    setIsConnecting(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await fetch(`/api/projects/${project.id}/repository`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: repoUrl }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to connect repository');
+      }
+
+      setRepoStatus({ connected: true, remoteUrl: data.remoteUrl, currentBranch: data.currentBranch });
+      setSuccess('Repository connected successfully!');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to connect repository');
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  const handleSaveAuthor = async () => {
+    setIsSaving(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          git_author_name: authorName || null,
+          git_author_email: authorEmail || null,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to save settings');
+      }
+
+      setSuccess('Git identity saved successfully!');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save settings');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* Repository Settings */}
+      <div className="bg-card border border-border rounded-lg p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Github className="w-5 h-5" />
+          <h3 className="text-lg font-semibold">GitHub Repository</h3>
+        </div>
+
+        {repoStatus?.connected && (
+          <div className="mb-4 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+            <p className="text-sm text-green-400">
+              <CheckCircle className="w-4 h-4 inline-block mr-2" />
+              Connected to repository
+            </p>
+            <p className="text-xs text-muted-foreground mt-1 font-mono">
+              {repoStatus.remoteUrl}
+            </p>
+            {repoStatus.currentBranch && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Branch: {repoStatus.currentBranch}
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Repository URL</label>
+            <input
+              type="text"
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+              placeholder="https://github.com/username/repo.git"
+              className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Enter the GitHub repository URL. HTTPS URLs will be converted to SSH for authentication.
+            </p>
+          </div>
+
+          <button
+            onClick={handleConnectRepository}
+            disabled={isConnecting || !repoUrl}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isConnecting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Connecting...
+              </>
+            ) : repoStatus?.connected ? (
+              <>
+                <Github className="w-4 h-4" />
+                Update Repository
+              </>
+            ) : (
+              <>
+                <Github className="w-4 h-4" />
+                Connect Repository
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Git Identity Settings */}
+      <div className="bg-card border border-border rounded-lg p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <User className="w-5 h-5" />
+          <h3 className="text-lg font-semibold">Git Identity</h3>
+        </div>
+
+        <p className="text-sm text-muted-foreground mb-4">
+          Set a custom author for commits made by the coding agent. When set, commits will appear as if made by this developer, without any Claude Code references.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Author Name</label>
+            <input
+              type="text"
+              value={authorName}
+              onChange={(e) => setAuthorName(e.target.value)}
+              placeholder="Alex Smith"
+              className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Author Email</label>
+            <input
+              type="email"
+              value={authorEmail}
+              onChange={(e) => setAuthorEmail(e.target.value)}
+              placeholder="alex@example.com"
+              className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+
+          <button
+            onClick={handleSaveAuthor}
+            disabled={isSaving}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Save Identity
+              </>
+            )}
+          </button>
+
+          {(authorName || authorEmail) && (
+            <p className="text-xs text-muted-foreground">
+              Commits will be authored as: <span className="font-mono">{authorName || '(name)'} &lt;{authorEmail || '(email)'}&gt;</span>
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Status Messages */}
+      {error && (
+        <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+          <p className="text-sm text-destructive">
+            <XCircle className="w-4 h-4 inline-block mr-2" />
+            {error}
+          </p>
+        </div>
+      )}
+
+      {success && (
+        <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+          <p className="text-sm text-green-400">
+            <CheckCircle className="w-4 h-4 inline-block mr-2" />
+            {success}
+          </p>
         </div>
       )}
     </div>

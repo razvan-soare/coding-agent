@@ -30,7 +30,7 @@ import { runPlanner, runPlannerRecovery, runMilestonePlanner, type FailedTaskCon
 import { runDeveloper, type RetryContext } from './agents/developer.js';
 import { runReviewer, formatReviewFeedback } from './agents/reviewer.js';
 import { extractKnowledge } from './agents/knowledge-extractor.js';
-import { getGitStatus, stageAllChanges, commit, push, hasRemote, resetToLastCommit } from './git/operations.js';
+import { getGitStatus, stageAllChanges, commit, push, hasRemote, resetToLastCommit, type GitAuthor } from './git/operations.js';
 
 const MAX_RETRIES = 3;
 
@@ -485,7 +485,17 @@ export async function runOrchestrator(projectId: string, triggerSource: TriggerS
     if (status.hasChanges) {
       console.log('\nCommitting changes...');
       stageAllChanges(project.path);
-      commitSha = commit(project.path, `[coding-agent] ${task.title}`);
+
+      // Build commit message and author info
+      const hasCustomAuthor = project.git_author_name && project.git_author_email;
+      const commitMessage = hasCustomAuthor
+        ? task.title  // Clean commit message without [coding-agent] prefix
+        : `[coding-agent] ${task.title}`;
+      const author: GitAuthor | undefined = hasCustomAuthor
+        ? { name: project.git_author_name!, email: project.git_author_email! }
+        : undefined;
+
+      commitSha = commit(project.path, commitMessage, author);
       console.log(`Committed: ${commitSha}`);
 
       // Push if remote exists
