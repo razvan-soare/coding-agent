@@ -7,6 +7,7 @@ import { useCreateTask, useDeleteTask } from '@/lib/hooks/useTasks';
 import { useRuns, useLogs, useRunStatus, useTriggerRun } from '@/lib/hooks/useRuns';
 import { useInstance, useStartInstance, useStopInstance } from '@/lib/hooks/useInstances';
 import { useKnowledge, useCreateKnowledge, useUpdateKnowledge, useDeleteKnowledge, type KnowledgeCategory } from '@/lib/hooks/useKnowledge';
+import { QRCodeSVG } from 'qrcode.react';
 import { useMilestones, useCreateMilestone, useUpdateMilestone, useDeleteMilestone, useBulkCreateMilestones, type MilestoneStatus } from '@/lib/hooks/useMilestones';
 import { formatDate, formatDuration, formatTimeUntil, cn } from '@/lib/utils';
 import {
@@ -722,7 +723,7 @@ function PreviewTab({
   startInstance,
   stopInstance,
 }: {
-  instance: { status: string; port: number; error?: string } | null | undefined;
+  instance: { status: string; port: number; error?: string; projectType?: 'web' | 'expo'; expoUrl?: string } | null | undefined;
   projectId: string;
   startInstance: { mutate: (id: string) => void; isPending: boolean };
   stopInstance: { mutate: (id: string) => void; isPending: boolean };
@@ -730,6 +731,7 @@ function PreviewTab({
   const isRunning = instance?.status === 'running';
   const isStarting = instance?.status === 'starting';
   const isOrphaned = instance?.status === 'orphaned';
+  const isExpo = instance?.projectType === 'expo';
 
   // Custom base URL from localStorage
   const [customBaseUrl, setCustomBaseUrl] = useState(() => {
@@ -907,14 +909,41 @@ function PreviewTab({
         </div>
       )}
 
-      {/* iframe preview */}
-      <div className="border border-border rounded-lg overflow-hidden bg-white">
-        <iframe
-          src={previewUrl!}
-          className="w-full h-[70vh]"
-          title="Project Preview"
-        />
-      </div>
+      {/* Preview: QR code for Expo, iframe for web */}
+      {isExpo ? (
+        <div className="flex flex-col items-center justify-center py-12 bg-muted/30 border border-border rounded-lg">
+          <div className="bg-white p-6 rounded-xl shadow-sm">
+            {instance?.expoUrl ? (
+              <QRCodeSVG
+                value={instance.expoUrl}
+                size={256}
+                level="M"
+                includeMargin={true}
+              />
+            ) : (
+              <div className="w-64 h-64 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+          <p className="mt-6 text-sm text-muted-foreground text-center max-w-md">
+            Scan this QR code with the <strong>Expo Go</strong> app on your phone to preview the app.
+          </p>
+          {instance?.expoUrl && (
+            <p className="mt-2 text-xs text-muted-foreground font-mono">
+              {instance.expoUrl}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="border border-border rounded-lg overflow-hidden bg-white">
+          <iframe
+            src={previewUrl!}
+            className="w-full h-[70vh]"
+            title="Project Preview"
+          />
+        </div>
+      )}
     </div>
   );
 }

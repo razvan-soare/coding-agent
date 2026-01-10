@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getProject } from '@/lib/db';
-import { startProject, stopProject, getOrDetectInstance } from '@/lib/instances';
+import { startProject, stopProject, getOrDetectInstanceAsync } from '@/lib/instances';
 
-// GET - Get instance status
+// GET - Get instance status (fetches Expo URL if needed)
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -18,8 +18,8 @@ export async function GET(
       );
     }
 
-    // Use getOrDetectInstance to auto-detect orphaned processes
-    const instance = getOrDetectInstance(id, project.path);
+    // Use async version to also fetch Expo URL if needed
+    const instance = await getOrDetectInstanceAsync(id, project.path);
 
     return NextResponse.json({
       instance: instance || null,

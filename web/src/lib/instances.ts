@@ -2,6 +2,9 @@ import { spawn, ChildProcess, execSync } from 'child_process';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { createServer } from 'net';
+import http from 'http';
+
+export type ProjectType = 'web' | 'expo';
 
 export interface ProjectInstance {
   projectId: string;
@@ -11,6 +14,8 @@ export interface ProjectInstance {
   status: 'starting' | 'running' | 'stopped' | 'error' | 'orphaned';
   startedAt: string;
   error?: string;
+  projectType: ProjectType;
+  expoUrl?: string; // For Expo projects, the exp:// URL for QR code
 }
 
 // In-memory store for running instances
@@ -100,13 +105,55 @@ function releasePort(port: number): void {
   usedPorts.delete(port);
 }
 
+// Fetch Expo URL from the dev server manifest
+async function fetchExpoUrl(port: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    const req = http.request({
+      hostname: 'localhost',
+      port,
+      path: '/',
+      method: 'GET',
+      headers: {
+        'expo-platform': 'ios',
+      },
+      timeout: 3000,
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const manifest = JSON.parse(data);
+          const hostUri = manifest?.extra?.expoClient?.hostUri || manifest?.extra?.expoGo?.debuggerHost;
+          if (hostUri) {
+            resolve(`exp://${hostUri}`);
+          } else {
+            resolve(null);
+          }
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.end();
+  });
+}
+
 interface PackageJson {
   scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
 }
 
-function detectProjectType(projectPath: string): { command: string; args: string[]; portFlag: string } | null {
+interface DetectedProject {
+  command: string;
+  args: string[];
+  portFlag: string;
+  projectType: ProjectType;
+}
+
+function detectProjectType(projectPath: string): DetectedProject | null {
   const packageJsonPath = join(projectPath, 'package.json');
 
   if (!existsSync(packageJsonPath)) {
@@ -118,28 +165,33 @@ function detectProjectType(projectPath: string): { command: string; args: string
     const scripts = packageJson.scripts || {};
     const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
 
+    // Check for Expo (React Native) - use tunnel mode for cross-network access
+    if (deps['expo']) {
+      return { command: 'npx', args: ['expo', 'start', '--tunnel'], portFlag: '--port', projectType: 'expo' };
+    }
+
     // Check for Next.js
     if (deps['next']) {
-      return { command: 'npm', args: ['run', 'dev', '--', '-H', '0.0.0.0'], portFlag: '-p' };
+      return { command: 'npm', args: ['run', 'dev', '--', '-H', '0.0.0.0'], portFlag: '-p', projectType: 'web' };
     }
 
     // Check for Vite
     if (deps['vite']) {
-      return { command: 'npm', args: ['run', 'dev', '--'], portFlag: '--port' };
+      return { command: 'npm', args: ['run', 'dev', '--'], portFlag: '--port', projectType: 'web' };
     }
 
     // Check for Create React App
     if (deps['react-scripts']) {
-      return { command: 'npm', args: ['start'], portFlag: 'PORT' }; // Uses env var
+      return { command: 'npm', args: ['start'], portFlag: 'PORT', projectType: 'web' }; // Uses env var
     }
 
     // Check for generic dev script
     if (scripts['dev']) {
-      return { command: 'npm', args: ['run', 'dev', '--'], portFlag: '--port' };
+      return { command: 'npm', args: ['run', 'dev', '--'], portFlag: '--port', projectType: 'web' };
     }
 
     if (scripts['start']) {
-      return { command: 'npm', args: ['start'], portFlag: '--port' };
+      return { command: 'npm', args: ['start'], portFlag: '--port', projectType: 'web' };
     }
 
     return null;
@@ -155,8 +207,8 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
     return existing;
   }
 
-  const projectType = detectProjectType(projectPath);
-  if (!projectType) {
+  const detectedProject = detectProjectType(projectPath);
+  if (!detectedProject) {
     const instance: ProjectInstance = {
       projectId,
       projectPath,
@@ -165,6 +217,7 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
       status: 'error',
       startedAt: new Date().toISOString(),
       error: 'Could not detect project type. Make sure package.json exists with a dev or start script.',
+      projectType: 'web',
     };
     instances.set(projectId, instance);
     return instance;
@@ -174,11 +227,11 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
 
   // Build the full command as a string for shell execution
   let command: string;
-  if (projectType.portFlag === 'PORT') {
+  if (detectedProject.portFlag === 'PORT') {
     // Create React App uses environment variable
-    command = `PORT=${port} ${projectType.command} ${projectType.args.join(' ')}`;
+    command = `PORT=${port} ${detectedProject.command} ${detectedProject.args.join(' ')}`;
   } else {
-    command = `${projectType.command} ${projectType.args.join(' ')} ${projectType.portFlag} ${port}`;
+    command = `${detectedProject.command} ${detectedProject.args.join(' ')} ${detectedProject.portFlag} ${port}`;
   }
 
   const instance: ProjectInstance = {
@@ -188,6 +241,7 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
     pid: 0,
     status: 'starting',
     startedAt: new Date().toISOString(),
+    projectType: detectedProject.projectType,
   };
 
   try {
@@ -216,13 +270,37 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
       const text = data.toString();
       output += text;
       console.log(`[Instance ${projectId}] stdout:`, text.trim());
-      // Common patterns that indicate server is ready
-      if (output.includes('Ready') || output.includes('ready') || output.includes('localhost:') || output.includes('Local:')) {
-        const inst = instances.get(projectId);
-        if (inst && inst.status === 'starting') {
-          inst.status = 'running';
+
+      const inst = instances.get(projectId);
+      if (!inst) return;
+
+      // For Expo projects, capture the exp:// URL for QR code
+      if (inst.projectType === 'expo') {
+        // Match both LAN (exp://192.168.x.x:port) and tunnel (exp://u.expo.dev/...) URLs
+        const expoUrlMatch = text.match(/exp:\/\/[^\s\x1b]+/);
+        if (expoUrlMatch && !inst.expoUrl) {
+          // Clean any ANSI escape codes that might be attached
+          inst.expoUrl = expoUrlMatch[0].replace(/[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
           instances.set(projectId, inst);
           saveState();
+          console.log(`[Instance ${projectId}] Captured Expo URL:`, inst.expoUrl);
+        }
+        // Expo shows "Metro waiting on" or tunnel URL when ready
+        if (output.includes('Metro waiting on') || output.includes('Logs for your project') || output.includes('exp://') || output.includes('Tunnel ready')) {
+          if (inst.status === 'starting') {
+            inst.status = 'running';
+            instances.set(projectId, inst);
+            saveState();
+          }
+        }
+      } else {
+        // Common patterns that indicate web server is ready
+        if (output.includes('Ready') || output.includes('ready') || output.includes('localhost:') || output.includes('Local:')) {
+          if (inst.status === 'starting') {
+            inst.status = 'running';
+            instances.set(projectId, inst);
+            saveState();
+          }
         }
       }
     });
@@ -231,13 +309,36 @@ export function startProject(projectId: string, projectPath: string): ProjectIns
       const text = data.toString();
       errorOutput += text;
       console.log(`[Instance ${projectId}] stderr:`, text.trim());
-      // Next.js outputs to stderr for some messages
-      if (text.includes('Ready') || text.includes('ready') || text.includes('Local:')) {
-        const inst = instances.get(projectId);
-        if (inst && inst.status === 'starting') {
-          inst.status = 'running';
+
+      const inst = instances.get(projectId);
+      if (!inst) return;
+
+      // For Expo projects, also check stderr for exp:// URL
+      if (inst.projectType === 'expo') {
+        // Match both LAN and tunnel URLs
+        const expoUrlMatch = text.match(/exp:\/\/[^\s\x1b]+/);
+        if (expoUrlMatch && !inst.expoUrl) {
+          // Clean any ANSI escape codes
+          inst.expoUrl = expoUrlMatch[0].replace(/[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
           instances.set(projectId, inst);
           saveState();
+          console.log(`[Instance ${projectId}] Captured Expo URL from stderr:`, inst.expoUrl);
+        }
+        if (text.includes('Metro waiting on') || text.includes('Logs for your project') || text.includes('exp://') || text.includes('Tunnel ready')) {
+          if (inst.status === 'starting') {
+            inst.status = 'running';
+            instances.set(projectId, inst);
+            saveState();
+          }
+        }
+      } else {
+        // Next.js outputs to stderr for some messages
+        if (text.includes('Ready') || text.includes('ready') || text.includes('Local:')) {
+          if (inst.status === 'starting') {
+            inst.status = 'running';
+            instances.set(projectId, inst);
+            saveState();
+          }
         }
       }
     });
@@ -407,9 +508,17 @@ export function stopProject(projectId: string): ProjectInstance | null {
 
 // Check for orphaned processes on common ports and return info
 export function detectOrphanedProcess(projectId: string, projectPath: string): ProjectInstance | null {
+  // Don't overwrite an existing instance - it may have expoUrl or other state
+  const existing = instances.get(projectId);
+  if (existing) {
+    return existing;
+  }
+
   // Scan ports in our range to find anything running
   for (let port = BASE_PORT; port < BASE_PORT + PORT_INCREMENT * 20; port += PORT_INCREMENT) {
     if (!isPortAvailable(port)) {
+      // Try to detect project type for proper handling
+      const detectedProject = detectProjectType(projectPath);
       // Found something running, create orphaned instance
       const instance: ProjectInstance = {
         projectId,
@@ -418,6 +527,7 @@ export function detectOrphanedProcess(projectId: string, projectPath: string): P
         pid: 0,
         status: 'orphaned',
         startedAt: new Date().toISOString(),
+        projectType: detectedProject?.projectType || 'web',
       };
       instances.set(projectId, instance);
       usedPorts.add(port);
@@ -455,6 +565,26 @@ export function getOrDetectInstance(projectId: string, projectPath: string): Pro
 
   // No tracked instance, check if there's an orphaned process
   return detectOrphanedProcess(projectId, projectPath);
+}
+
+// Async version that also fetches Expo URL if needed
+export async function getOrDetectInstanceAsync(projectId: string, projectPath: string): Promise<ProjectInstance | null> {
+  const instance = getOrDetectInstance(projectId, projectPath);
+
+  if (instance && instance.projectType === 'expo' && !instance.expoUrl) {
+    // Try to fetch Expo URL from the dev server
+    if (instance.status === 'running' || instance.status === 'orphaned') {
+      const expoUrl = await fetchExpoUrl(instance.port);
+      if (expoUrl) {
+        instance.expoUrl = expoUrl;
+        instances.set(projectId, instance);
+        saveState();
+        console.log(`[Instance ${projectId}] Fetched Expo URL:`, expoUrl);
+      }
+    }
+  }
+
+  return instance;
 }
 
 export function getAllInstances(): ProjectInstance[] {
