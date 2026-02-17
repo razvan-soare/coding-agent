@@ -1,0 +1,12 @@
+node_modules
+web/node_modules
+web/.next
+dist
+data/*.db
+data/*.db-wal
+data/*.db-shm
+.env
+*.log
+.DS_Store
+.git
+projects/

@@ -1,8 +1,10 @@
 import Database from 'better-sqlite3';
 import { resolve } from 'path';
 
-// Path to shared database (relative to web directory)
-const DB_PATH = resolve(process.cwd(), '../data/coding-agent.db');
+// Path to shared database (configurable via env, defaults to relative path from web directory)
+const DB_PATH = process.env.DATABASE_PATH
+  ? resolve(process.env.DATABASE_PATH)
+  : resolve(process.cwd(), '../data/coding-agent.db');
 
 let db: Database.Database | null = null;
 
